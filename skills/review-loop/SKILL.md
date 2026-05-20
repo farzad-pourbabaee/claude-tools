@@ -1,7 +1,7 @@
 ---
 name: review-loop
 description: Author/reviewer feedback loop on a target file using Claude (Opus) and Codex (GPT-5). Use when the user asks to "review", "iterate on", "improve", or "have Codex/Claude review" a paper, document, or any single file with model-vs-model feedback until convergence.
-argument-hint: <target-file> [--max-iterations N] [--author claude|codex] [--reviewer claude|codex] [--dry-run]
+argument-hint: <target-file> [--max-iterations N] [--author claude|codex] [--reviewer claude|codex] [--claude-model M] [--claude-effort L] [--codex-model M] [--codex-effort L] [--per-call-timeout S] [--dry-run]
 allowed-tools: ["Bash(${CLAUDE_PLUGIN_ROOT}/scripts/run-tool.sh:*)"]
 version: 0.1.0
 ---
@@ -46,3 +46,9 @@ Defaults can be overridden per-machine at
 `~/.config/claude-tools/review-loop.toml`. See
 `${CLAUDE_PLUGIN_ROOT}/config/review-loop.toml.example` for available keys.
 CLI flags override config-file values.
+
+Model + reasoning-effort are **engine-scoped**: `--claude-model` /
+`--claude-effort` always apply to the Claude CLI (whether it's the author
+or the reviewer), and `--codex-model` / `--codex-effort` always apply to
+the Codex CLI. Leaving them unset falls through to each CLI's own default
+(typically configured in `~/.claude/settings.json` and `~/.codex/config.toml`).

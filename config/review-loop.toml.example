@@ -24,3 +24,24 @@ diff_threshold_bytes = 32
 # you see subprocess.TimeoutExpired on iteration 1. Override per-run with
 # --per-call-timeout.
 per_call_timeout_s = 1800
+
+# Per-engine model + reasoning-effort overrides.
+#
+# These are *engine-scoped*, not role-scoped: claude_model/effort apply
+# whenever the Claude CLI is invoked (whether as author or reviewer), and
+# codex_model/effort apply whenever the Codex CLI is invoked. Swapping
+# --author/--reviewer does NOT swap the model/effort.
+#
+# Leave commented out / unset to fall through to each CLI's own default
+# (typically configured in ~/.claude/settings.json and ~/.codex/config.toml).
+# Override per-run with --claude-model / --claude-effort / --codex-model /
+# --codex-effort.
+#
+# Valid effort levels:
+#   Claude: low | medium | high | xhigh | max
+#   Codex:  low | medium | high | xhigh
+#
+# claude_model  = "opus"
+# claude_effort = "high"
+# codex_model   = "gpt-5.5"
+# codex_effort  = "high"

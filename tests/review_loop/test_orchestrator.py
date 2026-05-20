@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import pytest
@@ -40,9 +40,21 @@ class FakeAdapter:
     name: str
     responses: list[str]
     calls: list[tuple[str, str]]
+    # Records the model/effort kwargs each invocation was called with, so
+    # tests can assert the orchestrator threaded engine settings correctly.
+    invocations: list[dict] = field(default_factory=list)
 
-    def invoke(self, system_prompt: str, user_prompt: str, *, timeout_s: float = 1800.0) -> str:
+    def invoke(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        *,
+        timeout_s: float = 1800.0,
+        model: str | None = None,
+        effort: str | None = None,
+    ) -> str:
         self.calls.append((system_prompt, user_prompt))
+        self.invocations.append({"model": model, "effort": effort})
         if not self.responses:
             raise AssertionError("Fake adapter ran out of responses")
         return self.responses.pop(0)
@@ -170,3 +182,65 @@ def test_dry_run_does_not_invoke(
     # reviewer-first loop, that's the reviewer prompt.
     prompts = sorted(p.name for p in result.run_dir.iterdir())
     assert any("reviewer-prompt" in n for n in prompts)
+
+
+def test_engine_settings_threaded_to_adapters(
+    fake_adapters, tmp_path: Path, isolated_home: Path
+) -> None:
+    """claude_model/effort and codex_model/effort follow the engine, not the role."""
+    target = tmp_path / "paper.md"
+    target.write_text("body\n")
+
+    fake_adapters["claude"] = FakeAdapter(
+        name="claude",
+        responses=["<<<FILE>>>\nrev1\n<<<END>>>"],
+        calls=[],
+    )
+    fake_adapters["codex"] = FakeAdapter(
+        name="codex",
+        responses=["Issue: foo", "No remaining errors. <approved/>"],
+        calls=[],
+    )
+
+    cfg = LoopConfig(
+        target=target,
+        author="claude",
+        reviewer="codex",
+        max_iterations=2,
+        claude_model="opus",
+        claude_effort="high",
+        codex_model="gpt-5.5",
+        codex_effort="xhigh",
+    )
+    result = run_loop(cfg)
+
+    assert result.final_converged is True
+    # One Claude call (author rewrite) with the Claude engine settings.
+    assert fake_adapters["claude"].invocations == [
+        {"model": "opus", "effort": "high"},
+    ]
+    # Two Codex calls (reviewer iter 1 + reviewer iter 2 approval), both with Codex settings.
+    assert fake_adapters["codex"].invocations == [
+        {"model": "gpt-5.5", "effort": "xhigh"},
+        {"model": "gpt-5.5", "effort": "xhigh"},
+    ]
+
+
+def test_engine_settings_default_to_none(
+    fake_adapters, tmp_path: Path, isolated_home: Path
+) -> None:
+    """When the user sets nothing, adapters receive model=None and effort=None."""
+    target = tmp_path / "paper.md"
+    target.write_text("body\n")
+
+    fake_adapters["claude"] = FakeAdapter(name="claude", responses=[], calls=[])
+    fake_adapters["codex"] = FakeAdapter(
+        name="codex",
+        responses=["No remaining errors. <approved/>"],
+        calls=[],
+    )
+
+    cfg = LoopConfig(target=target, author="claude", reviewer="codex", max_iterations=1)
+    run_loop(cfg)
+
+    assert fake_adapters["codex"].invocations == [{"model": None, "effort": None}]

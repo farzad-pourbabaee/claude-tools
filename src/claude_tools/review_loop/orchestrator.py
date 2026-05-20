@@ -69,7 +69,24 @@ class LoopConfig:
     context_budget_tokens: int = 200_000
     diff_threshold_bytes: int = 32
     per_call_timeout_s: float = 1800.0
+    # Per-engine model + reasoning-effort overrides. None means "use the CLI's
+    # own default" (whatever's in ~/.claude/settings.json or ~/.codex/config.toml).
+    # These are engine-scoped (not role-scoped), so swapping --author/--reviewer
+    # does not swap the model/effort.
+    claude_model: str | None = None
+    claude_effort: str | None = None
+    codex_model: str | None = None
+    codex_effort: str | None = None
     dry_run: bool = False
+
+
+def _engine_settings(engine_name: str, cfg: LoopConfig) -> dict[str, str | None]:
+    """Return {model, effort} for the given engine, looked up from cfg."""
+    if engine_name == "claude":
+        return {"model": cfg.claude_model, "effort": cfg.claude_effort}
+    if engine_name == "codex":
+        return {"model": cfg.codex_model, "effort": cfg.codex_effort}
+    return {}
 
 
 @dataclass
@@ -218,7 +235,10 @@ def run_loop(cfg: LoopConfig) -> LoopResult:
 
         console.print(f"[magenta]reviewer[/magenta] = {reviewer.name}; invoking...")
         reviewer_output = reviewer.invoke(
-            REVIEWER_SYSTEM_PROMPT, reviewer_prompt, timeout_s=cfg.per_call_timeout_s
+            REVIEWER_SYSTEM_PROMPT,
+            reviewer_prompt,
+            timeout_s=cfg.per_call_timeout_s,
+            **_engine_settings(reviewer.name, cfg),
         )
         write_transcript(run_dir, f"iter-{i:02d}-reviewer", reviewer_output)
 
@@ -244,7 +264,10 @@ def run_loop(cfg: LoopConfig) -> LoopResult:
         author_prompt = _build_author_prompt(ctx, reviewer_output)
         console.print(f"[cyan]author[/cyan] = {author.name}; invoking...")
         author_output = author.invoke(
-            AUTHOR_SYSTEM_PROMPT, author_prompt, timeout_s=cfg.per_call_timeout_s
+            AUTHOR_SYSTEM_PROMPT,
+            author_prompt,
+            timeout_s=cfg.per_call_timeout_s,
+            **_engine_settings(author.name, cfg),
         )
         write_transcript(run_dir, f"iter-{i:02d}-author", author_output)
 

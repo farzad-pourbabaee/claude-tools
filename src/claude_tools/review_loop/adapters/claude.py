@@ -16,13 +16,24 @@ class ClaudeAdapter:
 
     name: str = "claude"
 
-    def invoke(self, system_prompt: str, user_prompt: str, *, timeout_s: float = 1800.0) -> str:
+    def invoke(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        *,
+        timeout_s: float = 1800.0,
+        model: str | None = None,
+        effort: str | None = None,
+    ) -> str:
         # `claude -p PROMPT` runs a single-turn non-interactive query and prints the response.
         # We pass the prompt as a positional arg; system prompt is prepended into the user
         # prompt because the CLI's `--system` flag varies across versions.
         combined = f"<system>\n{system_prompt}\n</system>\n\n{user_prompt}"
-        result = run_capture(
-            ["claude", "-p", combined],
-            timeout_s=timeout_s,
-        )
+        argv: list[str] = ["claude"]
+        if model is not None:
+            argv += ["--model", model]
+        if effort is not None:
+            argv += ["--effort", effort]
+        argv += ["-p", combined]
+        result = run_capture(argv, timeout_s=timeout_s)
         return result.stdout.strip()

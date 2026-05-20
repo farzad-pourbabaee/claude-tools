@@ -15,6 +15,13 @@ DEFAULTS = {
     "context_budget_tokens": 200_000,
     "diff_threshold_bytes": 32,
     "per_call_timeout_s": 1800.0,
+    # Per-engine model + reasoning-effort overrides. None falls through to the
+    # CLI's own default (typically set in ~/.claude/settings.json and
+    # ~/.codex/config.toml).
+    "claude_model": None,
+    "claude_effort": None,
+    "codex_model": None,
+    "codex_effort": None,
 }
 
 
@@ -45,6 +52,18 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> None:
     p.add_argument("--per-call-timeout", type=float, dest="per_call_timeout_s",
                    help="Per-invocation timeout in seconds for each model call "
                         "(default 1800).")
+    p.add_argument("--claude-model", dest="claude_model",
+                   help="Model alias or full ID for the Claude CLI (e.g. 'opus', "
+                        "'sonnet', 'claude-opus-4-7'). Default: CLI's own setting.")
+    p.add_argument("--claude-effort", dest="claude_effort",
+                   help="Reasoning effort for the Claude CLI: "
+                        "low | medium | high | xhigh | max. Default: CLI's own setting.")
+    p.add_argument("--codex-model", dest="codex_model",
+                   help="Model name for the Codex CLI (e.g. 'gpt-5', 'gpt-5.5', "
+                        "'gpt-5-codex'). Default: CLI's own setting.")
+    p.add_argument("--codex-effort", dest="codex_effort",
+                   help="Reasoning effort for the Codex CLI: "
+                        "low | medium | high | xhigh. Default: CLI's own setting.")
     p.add_argument("--dry-run", action="store_true",
                    help="Build prompts and write them to the run dir without invoking models.")
     p.set_defaults(func=run)
@@ -57,6 +76,8 @@ def run(args: argparse.Namespace) -> int:
         "author", "reviewer", "max_iterations",
         "context_budget_tokens", "diff_threshold_bytes",
         "per_call_timeout_s",
+        "claude_model", "claude_effort",
+        "codex_model", "codex_effort",
     )
     for key in overridable:
         val = getattr(args, key, None)
@@ -71,6 +92,10 @@ def run(args: argparse.Namespace) -> int:
         context_budget_tokens=int(cfg_dict["context_budget_tokens"]),
         diff_threshold_bytes=int(cfg_dict["diff_threshold_bytes"]),
         per_call_timeout_s=float(cfg_dict["per_call_timeout_s"]),
+        claude_model=cfg_dict.get("claude_model"),
+        claude_effort=cfg_dict.get("claude_effort"),
+        codex_model=cfg_dict.get("codex_model"),
+        codex_effort=cfg_dict.get("codex_effort"),
         dry_run=bool(args.dry_run),
     )
     result = run_loop(cfg)

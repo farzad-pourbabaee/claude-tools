@@ -16,17 +16,32 @@ class CodexAdapter:
 
     name: str = "codex"
 
-    def invoke(self, system_prompt: str, user_prompt: str, *, timeout_s: float = 1800.0) -> str:
+    def invoke(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        *,
+        timeout_s: float = 1800.0,
+        model: str | None = None,
+        effort: str | None = None,
+    ) -> str:
         # `codex exec PROMPT` runs a single-turn non-interactive query and prints
         # the final assistant message to stdout. We prepend a system block into
         # the user prompt for compatibility across CLI versions.
         combined = f"<system>\n{system_prompt}\n</system>\n\n{user_prompt}"
+        # Top-level codex flags must come BEFORE the `exec` subcommand. `-m`
+        # and `-c` are both top-level options per `codex --help`.
+        argv: list[str] = ["codex"]
+        if model is not None:
+            argv += ["-m", model]
+        if effort is not None:
+            # Codex doesn't expose a dedicated --effort flag; the reasoning
+            # effort is a config override under `model_reasoning_effort`.
+            argv += ["-c", f"model_reasoning_effort={effort}"]
         # --skip-git-repo-check: codex exec otherwise refuses to run outside a
         # trusted git repo. Our review-loop targets are often standalone files
         # (e.g. research notes in a non-git directory); the prompt is read-only
         # so the safety guard is unnecessary here.
-        result = run_capture(
-            ["codex", "exec", "--skip-git-repo-check", combined],
-            timeout_s=timeout_s,
-        )
+        argv += ["exec", "--skip-git-repo-check", combined]
+        result = run_capture(argv, timeout_s=timeout_s)
         return result.stdout.strip()
