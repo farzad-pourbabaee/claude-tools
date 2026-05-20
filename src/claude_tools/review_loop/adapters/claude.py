@@ -24,6 +24,7 @@ class ClaudeAdapter:
         timeout_s: float = 1800.0,
         model: str | None = None,
         effort: str | None = None,
+        cwd: str | None = None,
     ) -> str:
         # `claude -p PROMPT` runs a single-turn non-interactive query and prints the response.
         # We pass the prompt as a positional arg; system prompt is prepended into the user
@@ -35,5 +36,8 @@ class ClaudeAdapter:
         if effort is not None:
             argv += ["--effort", effort]
         argv += ["-p", combined]
-        result = run_capture(argv, timeout_s=timeout_s)
+        # Setting the subprocess cwd exposes that directory to claude's
+        # file-reading tools (Read/Grep/Bash) so the model can pull in
+        # siblings on demand instead of having them inlined into the prompt.
+        result = run_capture(argv, timeout_s=timeout_s, cwd=cwd)
         return result.stdout.strip()

@@ -18,6 +18,7 @@ class ModelAdapter(Protocol):
         timeout_s: float = 1800.0,
         model: str | None = None,
         effort: str | None = None,
+        cwd: str | None = None,
     ) -> str:
         """Run the model once and return its full text response.
 
@@ -26,6 +27,12 @@ class ModelAdapter(Protocol):
         translated into the CLI's flag syntax by each adapter. The set of
         valid values is governed by the CLI itself — invalid values are
         rejected at invocation time.
+
+        ``cwd`` is the working directory the underlying CLI should treat as
+        its workspace (i.e. what its file-reading tools resolve relative
+        paths against). Used by the review-loop to expose the project to
+        the model so siblings can be read on demand instead of inlined.
+        ``None`` falls through to the subprocess's inherited cwd.
 
         Implementations must raise ``SubprocessError`` (from
         ``claude_tools.common.subprocess_runner``) on failure.

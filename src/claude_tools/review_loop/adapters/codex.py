@@ -24,6 +24,7 @@ class CodexAdapter:
         timeout_s: float = 1800.0,
         model: str | None = None,
         effort: str | None = None,
+        cwd: str | None = None,
     ) -> str:
         # `codex exec PROMPT` runs a single-turn non-interactive query and prints
         # the final assistant message to stdout. We prepend a system block into
@@ -42,6 +43,13 @@ class CodexAdapter:
         # trusted git repo. Our review-loop targets are often standalone files
         # (e.g. research notes in a non-git directory); the prompt is read-only
         # so the safety guard is unnecessary here.
-        argv += ["exec", "--skip-git-repo-check", combined]
-        result = run_capture(argv, timeout_s=timeout_s)
+        argv += ["exec", "--skip-git-repo-check"]
+        # -C/--cd is an exec-level flag that sets the agent's working root, so
+        # the model's file tools resolve relative paths against the project.
+        # We also set the subprocess cwd to the same directory for belt-and-
+        # suspenders symmetry with the Claude adapter.
+        if cwd is not None:
+            argv += ["-C", cwd]
+        argv += [combined]
+        result = run_capture(argv, timeout_s=timeout_s, cwd=cwd)
         return result.stdout.strip()

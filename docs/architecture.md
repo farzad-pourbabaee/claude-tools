@@ -69,3 +69,28 @@ calling the Anthropic / OpenAI HTTP APIs directly. This means:
 - The CLI tools are themselves models-of-models (Claude Code is opinionated
   about how to talk to Claude), which is a feature, not a bug — we inherit
   the same tool-call semantics, reasoning effort, etc.
+
+## How review-loop exposes project context
+
+The orchestrator inlines only the target file's content into each prompt. It
+does NOT staple sibling file contents into the prompt body — instead, it sets
+the subprocess `cwd` (and, for codex, `--cd`) to the project root so that the
+author's and reviewer's own built-in file tools (Read / grep / cat / Bash)
+can read siblings on demand.
+
+This matters for two reasons:
+
+1. **Context window.** A research directory with many large `.md`/`.tex`
+   drafts can easily exceed 200K tokens of sibling content. Re-inlining all
+   of it on every iteration would blow past every model's input window. By
+   shipping just the target + a project tree, the prompt stays tiny no
+   matter how large the surrounding corpus.
+2. **Idempotence.** Siblings do not change during a review loop (the loop
+   only writes the target's `_loop_reviewed` working copy). The model only
+   needs to read any given sibling at most once across the whole run, and
+   the orchestrator never needs to re-ship unchanged bytes.
+
+The legacy `collect_context()` helper (which DOES inline siblings up to a
+token budget) is still available in `claude_tools.common.context_collector`
+for tools that genuinely need a single self-contained prompt. The review-loop
+uses the lighter `collect_review_context()` instead.

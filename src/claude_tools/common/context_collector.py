@@ -49,6 +49,23 @@ class Context:
     estimated_tokens: int
 
 
+@dataclass(frozen=True)
+class ReviewContext:
+    """Lightweight context used by the review-loop orchestrator.
+
+    Holds only the target file's content and a project tree. Sibling files are
+    intentionally NOT inlined — the orchestrator pairs this with cwd-aware
+    adapters so the author/reviewer can read siblings on demand via their own
+    built-in tools (Read/Grep/Bash). Avoids re-shipping unchanged sibling
+    content on every iteration and keeps the prompt small enough to fit in
+    each model's input window.
+    """
+    project_root: Path
+    target: Path
+    target_content: str
+    tree: str
+
+
 def _walk(root: Path) -> Iterable[Path]:
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS and not d.startswith(".")]
@@ -62,8 +79,19 @@ def _is_text(path: Path) -> bool:
     return path.suffix.lower() in TEXT_EXTENSIONS
 
 
-def build_tree(root: Path, max_entries: int = 200) -> str:
-    """Return a flat indented listing of the project tree, truncated."""
+def build_tree(
+    root: Path,
+    *,
+    exclude: Iterable[Path] = (),
+    max_entries: int = 200,
+) -> str:
+    """Return a flat indented listing of the project tree, truncated.
+
+    ``exclude`` is a set of absolute paths to omit from the listing — useful
+    when the caller wants to hide a specific file (e.g. the untouched
+    original when the loop operates on a sibling working copy).
+    """
+    excluded: set[Path] = {Path(p).resolve() for p in exclude}
     lines: list[str] = [str(root.name) + "/"]
     count = 0
     for dirpath, dirnames, filenames in os.walk(root):
@@ -79,6 +107,8 @@ def build_tree(root: Path, max_entries: int = 200) -> str:
                 return "\n".join(lines)
         for f in sorted(filenames):
             if f.startswith("."):
+                continue
+            if (Path(dirpath) / f).resolve() in excluded:
                 continue
             lines.append(f"{prefix}  {f}")
             count += 1
@@ -169,7 +199,40 @@ def collect_context(
         project_root=project_root,
         target=target,
         target_content=target_content,
-        tree=build_tree(project_root),
+        tree=build_tree(project_root, exclude=excluded_paths),
         siblings=siblings,
         estimated_tokens=used_tokens,
+    )
+
+
+def collect_review_context(
+    target: Path,
+    *,
+    project_root: Path | None = None,
+    exclude: Iterable[Path] | None = None,
+) -> ReviewContext:
+    """Lightweight context for the review-loop: target content + project tree.
+
+    Sibling file contents are intentionally NOT collected. The review-loop
+    orchestrator pairs this with cwd-aware adapters so the author and reviewer
+    read sibling files on demand via their own built-in tools, avoiding
+    re-shipping the unchanged sibling corpus on every iteration.
+
+    ``exclude`` hides specific files from the tree listing (does not affect
+    on-disk readability — only what the model sees in the prompt's tree).
+    """
+    target = target.resolve()
+    if project_root is None:
+        project_root = target.parent
+    project_root = project_root.resolve()
+    excluded_paths: set[Path] = (
+        {p.resolve() for p in exclude} if exclude is not None else set()
+    )
+    target_content = target.read_text(encoding="utf-8", errors="replace")
+    tree = build_tree(project_root, exclude=excluded_paths)
+    return ReviewContext(
+        project_root=project_root,
+        target=target,
+        target_content=target_content,
+        tree=tree,
     )

@@ -17,7 +17,10 @@ from pathlib import Path
 
 from rich.console import Console
 
-from claude_tools.common.context_collector import Context, collect_context
+from claude_tools.common.context_collector import (
+    ReviewContext,
+    collect_review_context,
+)
 from claude_tools.common.logging import new_run_dir, write_transcript
 from claude_tools.review_loop.adapters import get_adapter
 from claude_tools.review_loop.convergence import (
@@ -30,15 +33,21 @@ console = Console()
 AUTHOR_SYSTEM_PROMPT = """You are the AUTHOR in a multi-model review loop.
 
 You will be given:
-  1. A target file (the only file you may modify).
-  2. Read-only context: a directory tree and the contents of sibling files.
+  1. A target file (the only file you may modify), inlined in the prompt.
+  2. A project tree showing what sibling files exist under the project root.
   3. The reviewer's feedback on the current target file (always present —
      the reviewer runs first each iteration and only invokes you when there
      are remaining issues to address).
 
+Your working directory is set to the project root. If you need to consult any
+sibling file for context, read it directly from disk with your built-in tools
+(Read / grep / cat). Sibling files do not change during the review loop, so
+you only need to read any given sibling at most once across the whole run.
+
 Your job: emit the FULL new contents of the target file, incorporating all valid
 reviewer feedback. Do not narrate; emit only the file body. Wrap it between
 literal markers <<<FILE>>> and <<<END>>> so the orchestrator can extract it.
+Do NOT modify any sibling file — your only on-disk effect is the new target.
 
 If the reviewer raised an issue you believe is wrong, briefly explain why in
 prose AFTER the <<<END>>> marker so the reviewer sees your rationale.
@@ -47,12 +56,18 @@ prose AFTER the <<<END>>> marker so the reviewer sees your rationale.
 REVIEWER_SYSTEM_PROMPT = """You are the REVIEWER in a multi-model review loop.
 
 You will be given:
-  1. The current version of a target file (the author's latest revision).
-  2. Read-only context: a directory tree and the contents of sibling files.
+  1. The current version of a target file (the author's latest revision),
+     inlined in the prompt.
+  2. A project tree showing what sibling files exist under the project root.
+
+Your working directory is set to the project root. If you need to consult any
+sibling file for context, read it directly from disk with your built-in tools
+(Read / grep / cat). Sibling files do not change during the review loop, so
+you only need to read any given sibling at most once across the whole run.
 
 Your job: identify remaining substantive issues — mathematical, logical,
 factual, or structural. Be concise and surgical: cite specific lines or
-passages.
+passages. Do NOT modify any file — your only output is review feedback text.
 
 If the file has no remaining substantive issues, end your response with the
 literal token <approved/> on its own line. Otherwise list the issues, ordered
@@ -66,6 +81,10 @@ class LoopConfig:
     author: str = "claude"
     reviewer: str = "codex"
     max_iterations: int = 6
+    # Deprecated: sibling content is no longer inlined into prompts (the
+    # adapters expose the project as the model's workspace and let it read
+    # siblings on demand). Kept on the dataclass so old TOML configs that
+    # set this key don't break; the value is unused.
     context_budget_tokens: int = 200_000
     diff_threshold_bytes: int = 32
     per_call_timeout_s: float = 1800.0
@@ -137,54 +156,69 @@ def _extract_file_body(author_output: str) -> str:
     return author_output.strip()
 
 
-def _build_author_prompt(ctx: Context, last_reviewer: str) -> str:
-    sibling_blocks = "\n\n".join(
-        f"### {sib.rel}\n```\n{sib.content}\n```" for sib in ctx.siblings
-    )
+def _build_author_prompt(ctx: ReviewContext, last_reviewer: str) -> str:
     # Under the reviewer-first loop, ``last_reviewer`` is always non-empty when
     # the author runs; the else branch is defensive only.
     reviewer_block = (
-        f"## Most recent reviewer feedback\n\n{last_reviewer}\n"
+        last_reviewer.strip()
         if last_reviewer.strip()
-        else "## Most recent reviewer feedback\n\n(empty — reviewer returned no text)\n"
+        else "(empty — reviewer returned no text)"
     )
     return f"""## Target file: {ctx.target.name}
 
-## Project tree
+The file you must revise is on disk at:
+```
+{ctx.target}
+```
+inside the project rooted at `{ctx.project_root}` (your working directory).
+Its current contents are inlined below verbatim. This is the ONLY file you
+may modify; emit the FULL new contents wrapped between the literal markers
+`<<<FILE>>>` and `<<<END>>>`.
+
+## Project tree (for orientation)
 ```
 {ctx.tree}
 ```
 
-## Sibling files (read-only)
-
-{sibling_blocks}
+Sibling files are NOT inlined. If you need context from any of them, read
+them yourself with your built-in tools (Read / grep / cat). They are
+guaranteed not to change during this review loop.
 
 ## Current target file content
 
 ```
 {ctx.target_content}
 ```
+
+## Most recent reviewer feedback
 
 {reviewer_block}
 
-Please emit the full new contents of `{ctx.target.name}` wrapped between
-<<<FILE>>> and <<<END>>> markers."""
+Emit the full new contents of `{ctx.target.name}` wrapped between `<<<FILE>>>`
+and `<<<END>>>`. After `<<<END>>>` you may briefly explain (in prose) any
+reviewer issue you disagreed with, so the reviewer sees your rationale."""
 
 
-def _build_reviewer_prompt(ctx: Context) -> str:
-    sibling_blocks = "\n\n".join(
-        f"### {sib.rel}\n```\n{sib.content}\n```" for sib in ctx.siblings
-    )
+def _build_reviewer_prompt(ctx: ReviewContext) -> str:
     return f"""## Target file: {ctx.target.name}
 
-## Project tree
+The file under review is on disk at:
+```
+{ctx.target}
+```
+inside the project rooted at `{ctx.project_root}` (your working directory).
+Its current contents are inlined below verbatim.
+
+## Project tree (for orientation)
 ```
 {ctx.tree}
 ```
 
-## Sibling files (read-only)
-
-{sibling_blocks}
+Sibling files are NOT inlined. If you need context from any of them (for
+cross-reference, consistency checks, or to compare with related drafts),
+read them yourself with your built-in tools (Read / grep / cat). They are
+guaranteed not to change during this review loop, so you only need to read
+any given sibling once across the whole run.
 
 ## Current target file content
 
@@ -192,8 +226,8 @@ def _build_reviewer_prompt(ctx: Context) -> str:
 {ctx.target_content}
 ```
 
-Review the current target file. List substantive issues, or end with
-<approved/> if none remain."""
+Review the current target file. List substantive issues, ordered by severity.
+End with `<approved/>` on its own line if no substantive issues remain."""
 
 
 def _working_target_path(original: Path) -> Path:
@@ -242,14 +276,11 @@ def run_loop(cfg: LoopConfig) -> LoopResult:
         console.rule(f"Iteration {i}/{cfg.max_iterations}")
 
         # --- Reviewer turn (always runs first; sees the current file in place). ---
-        # Hide the untouched original from sibling context so the models don't
+        # Hide the untouched original from the project tree so the models don't
         # see two near-identical files in the same directory.
-        ctx = collect_context(
-            working,
-            max_tokens=cfg.context_budget_tokens,
-            exclude=[original],
-        )
+        ctx = collect_review_context(working, exclude=[original])
         reviewer_prompt = _build_reviewer_prompt(ctx)
+        cwd = str(ctx.project_root)
 
         if cfg.dry_run:
             console.print(
@@ -264,6 +295,7 @@ def run_loop(cfg: LoopConfig) -> LoopResult:
             REVIEWER_SYSTEM_PROMPT,
             reviewer_prompt,
             timeout_s=cfg.per_call_timeout_s,
+            cwd=cwd,
             **_engine_settings(reviewer.name, cfg),
         )
         write_transcript(run_dir, f"iter-{i:02d}-reviewer", reviewer_output)
@@ -286,17 +318,14 @@ def run_loop(cfg: LoopConfig) -> LoopResult:
 
         # --- Author turn (acts on the reviewer's feedback). ---
         # Re-collect context defensively, though only the reviewer block has changed.
-        ctx = collect_context(
-            working,
-            max_tokens=cfg.context_budget_tokens,
-            exclude=[original],
-        )
+        ctx = collect_review_context(working, exclude=[original])
         author_prompt = _build_author_prompt(ctx, reviewer_output)
         console.print(f"[cyan]author[/cyan] = {author.name}; invoking...")
         author_output = author.invoke(
             AUTHOR_SYSTEM_PROMPT,
             author_prompt,
             timeout_s=cfg.per_call_timeout_s,
+            cwd=str(ctx.project_root),
             **_engine_settings(author.name, cfg),
         )
         write_transcript(run_dir, f"iter-{i:02d}-author", author_output)

@@ -53,7 +53,10 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> None:
     )
     p.add_argument("--max-iterations", type=int, help="Hard cap on rounds (default 6).")
     p.add_argument("--context-budget", type=int, dest="context_budget_tokens",
-                   help="Approx token budget for read-only sibling files.")
+                   help="(Deprecated; no longer used.) Sibling files are read "
+                        "on-demand by the author/reviewer via their own file tools, "
+                        "so there is no shared context budget to tune. Flag is "
+                        "retained so old configs keep parsing.")
     p.add_argument("--diff-threshold", type=int, dest="diff_threshold_bytes",
                    help="Author-output byte delta below which we declare stability.")
     p.add_argument("--per-call-timeout", type=float, dest="per_call_timeout_s",

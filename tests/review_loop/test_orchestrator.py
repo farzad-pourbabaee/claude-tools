@@ -41,8 +41,8 @@ class FakeAdapter:
     name: str
     responses: list[str]
     calls: list[tuple[str, str]]
-    # Records the model/effort kwargs each invocation was called with, so
-    # tests can assert the orchestrator threaded engine settings correctly.
+    # Records the model/effort/cwd kwargs each invocation was called with, so
+    # tests can assert the orchestrator threaded settings correctly.
     invocations: list[dict] = field(default_factory=list)
 
     def invoke(
@@ -53,9 +53,10 @@ class FakeAdapter:
         timeout_s: float = 1800.0,
         model: str | None = None,
         effort: str | None = None,
+        cwd: str | None = None,
     ) -> str:
         self.calls.append((system_prompt, user_prompt))
-        self.invocations.append({"model": model, "effort": effort})
+        self.invocations.append({"model": model, "effort": effort, "cwd": cwd})
         if not self.responses:
             raise AssertionError("Fake adapter ran out of responses")
         return self.responses.pop(0)
@@ -226,14 +227,15 @@ def test_engine_settings_threaded_to_adapters(
     result = run_loop(cfg)
 
     assert result.final_converged is True
+    expected_cwd = str(tmp_path.resolve())
     # One Claude call (author rewrite) with the Claude engine settings.
     assert fake_adapters["claude"].invocations == [
-        {"model": "opus", "effort": "high"},
+        {"model": "opus", "effort": "high", "cwd": expected_cwd},
     ]
     # Two Codex calls (reviewer iter 1 + reviewer iter 2 approval), both with Codex settings.
     assert fake_adapters["codex"].invocations == [
-        {"model": "gpt-5.5", "effort": "xhigh"},
-        {"model": "gpt-5.5", "effort": "xhigh"},
+        {"model": "gpt-5.5", "effort": "xhigh", "cwd": expected_cwd},
+        {"model": "gpt-5.5", "effort": "xhigh", "cwd": expected_cwd},
     ]
 
 
@@ -275,12 +277,24 @@ def test_original_untouched_when_max_iterations_hit(
     assert working.read_text().startswith("rev2 ")
 
 
-def test_original_excluded_from_sibling_context(
+def test_siblings_are_not_inlined_in_prompt(
     fake_adapters, tmp_path: Path, isolated_home: Path
 ) -> None:
-    """The reviewer prompt must not echo the original file back as a sibling."""
+    """Sibling file contents must never appear in the prompt.
+
+    The new design exposes the project as the model's workspace and lets
+    the model read siblings on demand via its own tools. Re-shipping unchanged
+    sibling content on every iteration was the cause of the context-window
+    blow-up the loop hit on large research directories.
+    """
     target = tmp_path / "paper.md"
-    target.write_text("UNIQUE_ORIGINAL_TOKEN body\n")
+    target.write_text("WORKING_TOKEN body\n")
+    # A large sibling and a small one — both should be referenced by the tree
+    # but neither's content should appear in the prompt.
+    big_sibling = tmp_path / "huge_notes.md"
+    big_sibling.write_text("BIG_SIBLING_TOKEN " + "X" * 100_000)
+    small_sibling = tmp_path / "tiny.md"
+    small_sibling.write_text("SMALL_SIBLING_TOKEN")
 
     fake_adapters["claude"] = FakeAdapter(name="claude", responses=[], calls=[])
     fake_adapters["codex"] = FakeAdapter(
@@ -293,11 +307,19 @@ def test_original_excluded_from_sibling_context(
     run_loop(cfg)
 
     reviewer_prompt = fake_adapters["codex"].calls[0][1]
-    # The token appears in the working-copy block but the original file path
-    # must not be listed as a separate sibling section.
-    assert "### paper.md" not in reviewer_prompt
-    # Sanity: the working file's content is still being sent for review.
-    assert "UNIQUE_ORIGINAL_TOKEN" in reviewer_prompt
+    # The working file content IS inlined (it's the focus of the review).
+    assert "WORKING_TOKEN" in reviewer_prompt
+    # Sibling content is NOT inlined under any block.
+    assert "BIG_SIBLING_TOKEN" not in reviewer_prompt
+    assert "SMALL_SIBLING_TOKEN" not in reviewer_prompt
+    # The tree still mentions them by filename so the model knows what's there.
+    assert "huge_notes.md" in reviewer_prompt
+    assert "tiny.md" in reviewer_prompt
+    # And the untouched original (paper.md) is hidden from the tree to avoid
+    # confusion with the working copy paper_loop_reviewed.md.
+    tree_section = reviewer_prompt.split("## Current target file content", 1)[0]
+    assert "paper.md" not in tree_section
+    assert "paper_loop_reviewed.md" in tree_section
 
 
 def test_engine_settings_default_to_none(
@@ -317,4 +339,6 @@ def test_engine_settings_default_to_none(
     cfg = LoopConfig(target=target, author="claude", reviewer="codex", max_iterations=1)
     run_loop(cfg)
 
-    assert fake_adapters["codex"].invocations == [{"model": None, "effort": None}]
+    assert fake_adapters["codex"].invocations == [
+        {"model": None, "effort": None, "cwd": str(tmp_path.resolve())},
+    ]
