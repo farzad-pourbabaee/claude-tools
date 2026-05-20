@@ -18,3 +18,9 @@ context_budget_tokens = 200000
 # Author-output byte delta below which we declare convergence by stability.
 # Smaller = stricter (fewer false convergences); larger = stops sooner.
 diff_threshold_bytes = 32
+
+# Per-invocation timeout (seconds) for each model call.
+# Author/reviewer steps on large files can run several minutes; raise this if
+# you see subprocess.TimeoutExpired on iteration 1. Override per-run with
+# --per-call-timeout.
+per_call_timeout_s = 1800

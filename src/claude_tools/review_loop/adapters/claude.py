@@ -16,7 +16,7 @@ class ClaudeAdapter:
 
     name: str = "claude"
 
-    def invoke(self, system_prompt: str, user_prompt: str, *, timeout_s: float = 600.0) -> str:
+    def invoke(self, system_prompt: str, user_prompt: str, *, timeout_s: float = 1800.0) -> str:
         # `claude -p PROMPT` runs a single-turn non-interactive query and prints the response.
         # We pass the prompt as a positional arg; system prompt is prepended into the user
         # prompt because the CLI's `--system` flag varies across versions.

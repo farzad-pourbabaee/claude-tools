@@ -59,6 +59,7 @@ class LoopConfig:
     max_iterations: int = 6
     context_budget_tokens: int = 200_000
     diff_threshold_bytes: int = 32
+    per_call_timeout_s: float = 1800.0
     dry_run: bool = False
 
 
@@ -200,7 +201,9 @@ def run_loop(cfg: LoopConfig) -> LoopResult:
             break
 
         console.print(f"[cyan]author[/cyan] = {author.name}; invoking...")
-        author_output = author.invoke(AUTHOR_SYSTEM_PROMPT, author_prompt)
+        author_output = author.invoke(
+            AUTHOR_SYSTEM_PROMPT, author_prompt, timeout_s=cfg.per_call_timeout_s
+        )
         write_transcript(run_dir, f"iter-{i:02d}-author", author_output)
 
         new_body = _extract_file_body(author_output)
@@ -230,7 +233,9 @@ def run_loop(cfg: LoopConfig) -> LoopResult:
         ctx = collect_context(target, max_tokens=cfg.context_budget_tokens)
         reviewer_prompt = _build_reviewer_prompt(ctx)
         console.print(f"[magenta]reviewer[/magenta] = {reviewer.name}; invoking...")
-        reviewer_output = reviewer.invoke(REVIEWER_SYSTEM_PROMPT, reviewer_prompt)
+        reviewer_output = reviewer.invoke(
+            REVIEWER_SYSTEM_PROMPT, reviewer_prompt, timeout_s=cfg.per_call_timeout_s
+        )
         write_transcript(run_dir, f"iter-{i:02d}-reviewer", reviewer_output)
         last_reviewer = reviewer_output
 

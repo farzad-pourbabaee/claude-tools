@@ -41,7 +41,7 @@ class FakeAdapter:
     responses: list[str]
     calls: list[tuple[str, str]]
 
-    def invoke(self, system_prompt: str, user_prompt: str, *, timeout_s: float = 600.0) -> str:
+    def invoke(self, system_prompt: str, user_prompt: str, *, timeout_s: float = 1800.0) -> str:
         self.calls.append((system_prompt, user_prompt))
         if not self.responses:
             raise AssertionError("Fake adapter ran out of responses")

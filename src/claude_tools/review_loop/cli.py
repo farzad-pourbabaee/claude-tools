@@ -14,6 +14,7 @@ DEFAULTS = {
     "max_iterations": 6,
     "context_budget_tokens": 200_000,
     "diff_threshold_bytes": 32,
+    "per_call_timeout_s": 1800.0,
 }
 
 
@@ -39,6 +40,9 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> None:
                    help="Approx token budget for read-only sibling files.")
     p.add_argument("--diff-threshold", type=int, dest="diff_threshold_bytes",
                    help="Author-output byte delta below which we declare stability.")
+    p.add_argument("--per-call-timeout", type=float, dest="per_call_timeout_s",
+                   help="Per-invocation timeout in seconds for each model call "
+                        "(default 1800).")
     p.add_argument("--dry-run", action="store_true",
                    help="Build prompts and write them to the run dir without invoking models.")
     p.set_defaults(func=run)
@@ -50,6 +54,7 @@ def run(args: argparse.Namespace) -> int:
     overridable = (
         "author", "reviewer", "max_iterations",
         "context_budget_tokens", "diff_threshold_bytes",
+        "per_call_timeout_s",
     )
     for key in overridable:
         val = getattr(args, key, None)
@@ -63,6 +68,7 @@ def run(args: argparse.Namespace) -> int:
         max_iterations=int(cfg_dict["max_iterations"]),
         context_budget_tokens=int(cfg_dict["context_budget_tokens"]),
         diff_threshold_bytes=int(cfg_dict["diff_threshold_bytes"]),
+        per_call_timeout_s=float(cfg_dict["per_call_timeout_s"]),
         dry_run=bool(args.dry_run),
     )
     result = run_loop(cfg)

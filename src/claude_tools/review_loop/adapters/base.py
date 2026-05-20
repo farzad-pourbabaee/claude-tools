@@ -10,7 +10,7 @@ class ModelAdapter(Protocol):
 
     name: str
 
-    def invoke(self, system_prompt: str, user_prompt: str, *, timeout_s: float = 600.0) -> str:
+    def invoke(self, system_prompt: str, user_prompt: str, *, timeout_s: float = 1800.0) -> str:
         """Run the model once and return its full text response.
 
         Implementations must raise ``SubprocessError`` (from

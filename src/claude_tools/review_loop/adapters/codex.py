@@ -16,7 +16,7 @@ class CodexAdapter:
 
     name: str = "codex"
 
-    def invoke(self, system_prompt: str, user_prompt: str, *, timeout_s: float = 600.0) -> str:
+    def invoke(self, system_prompt: str, user_prompt: str, *, timeout_s: float = 1800.0) -> str:
         # `codex exec PROMPT` runs a single-turn non-interactive query and prints
         # the final assistant message to stdout. We prepend a system block into
         # the user prompt for compatibility across CLI versions.
