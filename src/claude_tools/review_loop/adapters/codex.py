@@ -21,8 +21,12 @@ class CodexAdapter:
         # the final assistant message to stdout. We prepend a system block into
         # the user prompt for compatibility across CLI versions.
         combined = f"<system>\n{system_prompt}\n</system>\n\n{user_prompt}"
+        # --skip-git-repo-check: codex exec otherwise refuses to run outside a
+        # trusted git repo. Our review-loop targets are often standalone files
+        # (e.g. research notes in a non-git directory); the prompt is read-only
+        # so the safety guard is unnecessary here.
         result = run_capture(
-            ["codex", "exec", combined],
+            ["codex", "exec", "--skip-git-repo-check", combined],
             timeout_s=timeout_s,
         )
         return result.stdout.strip()
