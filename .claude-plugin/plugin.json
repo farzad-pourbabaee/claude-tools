@@ -1,0 +1,14 @@
+{
+  "name": "claude-tools",
+  "version": "0.1.0",
+  "description": "Personal Claude Code toolkit: orchestrators, helper scripts, and skills.",
+  "author": {
+    "name": "Farzad Pourbabaee",
+    "email": "mfarzad69@gmail.com",
+    "url": "https://github.com/farzad-pourbabaee"
+  },
+  "homepage": "https://github.com/farzad-pourbabaee/claude-tools",
+  "repository": "https://github.com/farzad-pourbabaee/claude-tools",
+  "license": "MIT",
+  "keywords": ["personal", "tooling", "review-loop", "orchestrator"]
+}

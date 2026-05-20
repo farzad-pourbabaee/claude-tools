@@ -1,0 +1,17 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "claude-tools",
+  "description": "Farzad's personal Claude Code plugin repo.",
+  "owner": {
+    "name": "Farzad Pourbabaee",
+    "email": "mfarzad69@gmail.com"
+  },
+  "plugins": [
+    {
+      "name": "claude-tools",
+      "description": "Personal Claude Code toolkit: orchestrators, helper scripts, and skills.",
+      "source": "./",
+      "category": "development"
+    }
+  ]
+}
