@@ -1,4 +1,11 @@
-"""The review-loop orchestrator: author/reviewer iteration on a single file."""
+"""The review-loop orchestrator: reviewer/author iteration on a single file.
+
+Each iteration runs the reviewer first against the current file, then — only
+if the reviewer did not approve — runs the author with the reviewer's feedback
+to produce a revised file. The loop terminates as soon as the reviewer emits
+`<approved/>`, so when the file is already in good shape no author call is
+needed.
+"""
 
 from __future__ import annotations
 
@@ -25,7 +32,9 @@ AUTHOR_SYSTEM_PROMPT = """You are the AUTHOR in a multi-model review loop.
 You will be given:
   1. A target file (the only file you may modify).
   2. Read-only context: a directory tree and the contents of sibling files.
-  3. The most recent reviewer feedback (may be empty on the first iteration).
+  3. The reviewer's feedback on the current target file (always present —
+     the reviewer runs first each iteration and only invokes you when there
+     are remaining issues to address).
 
 Your job: emit the FULL new contents of the target file, incorporating all valid
 reviewer feedback. Do not narrate; emit only the file body. Wrap it between
@@ -115,10 +124,12 @@ def _build_author_prompt(ctx: Context, last_reviewer: str) -> str:
     sibling_blocks = "\n\n".join(
         f"### {sib.rel}\n```\n{sib.content}\n```" for sib in ctx.siblings
     )
+    # Under the reviewer-first loop, ``last_reviewer`` is always non-empty when
+    # the author runs; the else branch is defensive only.
     reviewer_block = (
         f"## Most recent reviewer feedback\n\n{last_reviewer}\n"
         if last_reviewer.strip()
-        else "## Most recent reviewer feedback\n\n(none — this is the first iteration)\n"
+        else "## Most recent reviewer feedback\n\n(empty — reviewer returned no text)\n"
     )
     return f"""## Target file: {ctx.target.name}
 
@@ -169,7 +180,13 @@ Review the current target file. List substantive issues, or end with
 
 
 def run_loop(cfg: LoopConfig) -> LoopResult:
-    """Execute the author/reviewer loop. Returns a LoopResult with logs."""
+    """Execute the reviewer/author loop. Returns a LoopResult with logs.
+
+    Each iteration runs the reviewer first against the current target file.
+    If the reviewer signals approval, the loop ends without an author call.
+    Otherwise the author rewrites the file with the reviewer's feedback in
+    hand and we move to the next iteration.
+    """
     target = cfg.target.resolve()
     if not target.exists():
         raise FileNotFoundError(target)
@@ -182,24 +199,49 @@ def run_loop(cfg: LoopConfig) -> LoopResult:
     write_transcript(run_dir, "target.before", target.read_text(encoding="utf-8"))
 
     result = LoopResult(config=cfg, run_dir=run_dir)
-    last_reviewer = ""
     prev_author_output = ""
 
     for i in range(1, cfg.max_iterations + 1):
         console.rule(f"Iteration {i}/{cfg.max_iterations}")
 
-        # Recollect context each iteration since the target file changes in place.
+        # --- Reviewer turn (always runs first; sees the current file in place). ---
         ctx = collect_context(target, max_tokens=cfg.context_budget_tokens)
-        author_prompt = _build_author_prompt(ctx, last_reviewer)
+        reviewer_prompt = _build_reviewer_prompt(ctx)
 
         if cfg.dry_run:
             console.print(
-                "[yellow]DRY-RUN: skipping author invocation; writing prompts only.[/yellow]"
+                "[yellow]DRY-RUN: skipping reviewer invocation; writing prompts only.[/yellow]"
             )
-            write_transcript(run_dir, f"iter-{i:02d}-author-prompt", author_prompt)
-            write_transcript(run_dir, f"iter-{i:02d}-author-system", AUTHOR_SYSTEM_PROMPT)
+            write_transcript(run_dir, f"iter-{i:02d}-reviewer-prompt", reviewer_prompt)
+            write_transcript(run_dir, f"iter-{i:02d}-reviewer-system", REVIEWER_SYSTEM_PROMPT)
             break
 
+        console.print(f"[magenta]reviewer[/magenta] = {reviewer.name}; invoking...")
+        reviewer_output = reviewer.invoke(
+            REVIEWER_SYSTEM_PROMPT, reviewer_prompt, timeout_s=cfg.per_call_timeout_s
+        )
+        write_transcript(run_dir, f"iter-{i:02d}-reviewer", reviewer_output)
+
+        # Convergence check #1: reviewer approved? Then no author call this iter.
+        decision = reviewer_approved(reviewer_output)
+        if decision.converged:
+            iter_result = IterationResult(
+                iteration=i,
+                author_output="(no author call — reviewer approved)",
+                reviewer_output=reviewer_output,
+                converged=True,
+                convergence_reason=decision.reason,
+            )
+            result.iterations.append(iter_result)
+            result.final_converged = True
+            result.final_reason = decision.reason
+            console.print(f"[green]converged[/green]: {decision.reason}")
+            break
+
+        # --- Author turn (acts on the reviewer's feedback). ---
+        # Re-collect context defensively, though only the reviewer block has changed.
+        ctx = collect_context(target, max_tokens=cfg.context_budget_tokens)
+        author_prompt = _build_author_prompt(ctx, reviewer_output)
         console.print(f"[cyan]author[/cyan] = {author.name}; invoking...")
         author_output = author.invoke(
             AUTHOR_SYSTEM_PROMPT, author_prompt, timeout_s=cfg.per_call_timeout_s
@@ -210,49 +252,29 @@ def run_loop(cfg: LoopConfig) -> LoopResult:
         _atomic_write(target, new_body)
         write_transcript(run_dir, f"iter-{i:02d}-target-after", new_body)
 
-        # Convergence check #1: author output stable?
+        iter_result = IterationResult(
+            iteration=i,
+            author_output=author_output,
+            reviewer_output=reviewer_output,
+            converged=False,
+            convergence_reason="",
+        )
+        result.iterations.append(iter_result)
+
+        # Convergence check #2: author output stable across consecutive iterations?
+        # If the author barely changed anything despite the reviewer's feedback,
+        # further iterations are unlikely to help.
         if prev_author_output:
             d = diff_below_threshold(
                 prev_author_output, author_output, min_changed_bytes=cfg.diff_threshold_bytes
             )
             if d.converged:
-                iter_result = IterationResult(
-                    iteration=i,
-                    author_output=author_output,
-                    reviewer_output="(no reviewer call — author output stable)",
-                    converged=True,
-                    convergence_reason=d.reason,
-                )
-                result.iterations.append(iter_result)
+                iter_result.converged = True
+                iter_result.convergence_reason = d.reason
                 result.final_converged = True
                 result.final_reason = d.reason
                 break
         prev_author_output = author_output
-
-        # Reviewer turn (re-collect context since target changed).
-        ctx = collect_context(target, max_tokens=cfg.context_budget_tokens)
-        reviewer_prompt = _build_reviewer_prompt(ctx)
-        console.print(f"[magenta]reviewer[/magenta] = {reviewer.name}; invoking...")
-        reviewer_output = reviewer.invoke(
-            REVIEWER_SYSTEM_PROMPT, reviewer_prompt, timeout_s=cfg.per_call_timeout_s
-        )
-        write_transcript(run_dir, f"iter-{i:02d}-reviewer", reviewer_output)
-        last_reviewer = reviewer_output
-
-        decision = reviewer_approved(reviewer_output)
-        iter_result = IterationResult(
-            iteration=i,
-            author_output=author_output,
-            reviewer_output=reviewer_output,
-            converged=decision.converged,
-            convergence_reason=decision.reason,
-        )
-        result.iterations.append(iter_result)
-        if decision.converged:
-            result.final_converged = True
-            result.final_reason = decision.reason
-            console.print(f"[green]converged[/green]: {decision.reason}")
-            break
 
     if not result.final_converged:
         result.final_reason = f"Max iterations ({cfg.max_iterations}) reached without approval."

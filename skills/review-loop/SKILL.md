@@ -19,16 +19,18 @@ and the Codex CLI (both subscription-backed, no API keys required).
 
 Each iteration:
 
-1. **Author** (default: Claude Opus) reads the target file plus read-only
-   context (sibling files in the same directory + project tree) and emits a
-   full revised version of the target file. The orchestrator writes it back
-   atomically to the same path.
-2. **Reviewer** (default: Codex / GPT-5) reads the new version + same context
-   and lists remaining substantive issues, or ends with `<approved/>` if none
-   remain.
+1. **Reviewer** (default: Codex / GPT-5) reads the current target file plus
+   read-only context (sibling files in the same directory + project tree)
+   and either lists remaining substantive issues or ends with `<approved/>`.
+2. **Author** (default: Claude Opus) reads the same context plus the
+   reviewer's feedback and emits a full revised version of the target file.
+   The orchestrator writes it back atomically to the same path.
 
-Loop stops on: explicit `<approved/>`, byte-stable author output, or
-`--max-iterations` (default 6).
+If the reviewer approves on its very first pass, the author is never invoked
+and the loop ends after a single reviewer call.
+
+Loop stops on: explicit `<approved/>`, byte-stable author output across
+consecutive iterations, or `--max-iterations` (default 6).
 
 ## Logs
 

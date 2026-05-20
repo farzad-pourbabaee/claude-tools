@@ -59,17 +59,14 @@ def fake_adapters(monkeypatch: pytest.MonkeyPatch):
     return state
 
 
-def test_converges_on_reviewer_approval(
+def test_converges_on_reviewer_approval_of_original(
     fake_adapters, tmp_path: Path, isolated_home: Path
 ) -> None:
+    """Reviewer approves the original file on its first pass; author never runs."""
     target = tmp_path / "paper.md"
     target.write_text("original body\n")
 
-    fake_adapters["claude"] = FakeAdapter(
-        name="claude",
-        responses=["<<<FILE>>>\nrevised body 1\n<<<END>>>"],
-        calls=[],
-    )
+    fake_adapters["claude"] = FakeAdapter(name="claude", responses=[], calls=[])
     fake_adapters["codex"] = FakeAdapter(
         name="codex",
         responses=["No remaining errors. <approved/>"],
@@ -81,13 +78,47 @@ def test_converges_on_reviewer_approval(
 
     assert result.final_converged is True
     assert "approved" in result.final_reason.lower()
-    assert target.read_text() == "revised body 1"
+    # Original file is untouched because the reviewer-first loop stops before
+    # the author is invoked.
+    assert target.read_text() == "original body\n"
+    assert fake_adapters["claude"].calls == []
     assert len(result.iterations) == 1
+
+
+def test_converges_after_one_revision(
+    fake_adapters, tmp_path: Path, isolated_home: Path
+) -> None:
+    """Reviewer flags the original, author rewrites once, reviewer then approves."""
+    target = tmp_path / "paper.md"
+    target.write_text("original body\n")
+
+    fake_adapters["claude"] = FakeAdapter(
+        name="claude",
+        responses=["<<<FILE>>>\nrevised body 1\n<<<END>>>"],
+        calls=[],
+    )
+    fake_adapters["codex"] = FakeAdapter(
+        name="codex",
+        responses=["Issue: missing intro", "No remaining errors. <approved/>"],
+        calls=[],
+    )
+
+    cfg = LoopConfig(target=target, author="claude", reviewer="codex", max_iterations=4)
+    result = run_loop(cfg)
+
+    assert result.final_converged is True
+    assert "approved" in result.final_reason.lower()
+    assert target.read_text() == "revised body 1"
+    # Iter 1: codex flags + claude rewrites. Iter 2: codex approves, no author.
+    assert len(result.iterations) == 2
+    assert len(fake_adapters["claude"].calls) == 1
+    assert len(fake_adapters["codex"].calls) == 2
 
 
 def test_hits_max_iterations(
     fake_adapters, tmp_path: Path, isolated_home: Path
 ) -> None:
+    """Reviewer never approves; loop terminates by hitting max_iterations."""
     target = tmp_path / "paper.md"
     target.write_text("body\n")
 
@@ -111,6 +142,9 @@ def test_hits_max_iterations(
     assert result.final_converged is False
     assert "max iterations" in result.final_reason.lower()
     assert len(result.iterations) == 2
+    # Each iteration runs both adapters once (codex flags issues, claude rewrites).
+    assert len(fake_adapters["codex"].calls) == 2
+    assert len(fake_adapters["claude"].calls) == 2
 
 
 def test_dry_run_does_not_invoke(
@@ -132,6 +166,7 @@ def test_dry_run_does_not_invoke(
     assert fake_adapters["claude"].calls == []
     assert fake_adapters["codex"].calls == []
     assert target.read_text() == original
-    # Prompt files should exist in the run dir.
+    # Dry-run writes the first prompt the orchestrator would send. Under the
+    # reviewer-first loop, that's the reviewer prompt.
     prompts = sorted(p.name for p in result.run_dir.iterdir())
-    assert any("author-prompt" in n for n in prompts)
+    assert any("reviewer-prompt" in n for n in prompts)

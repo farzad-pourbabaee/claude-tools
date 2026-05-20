@@ -21,11 +21,13 @@ DEFAULTS = {
 def add_subparser(subparsers: argparse._SubParsersAction) -> None:
     p = subparsers.add_parser(
         "review-loop",
-        help="Run an author/reviewer feedback loop on a target file.",
+        help="Run a reviewer/author feedback loop on a target file.",
         description=(
-            "Iterates: author rewrites the target file, reviewer critiques the new "
-            "version, repeat until convergence or --max-iterations. Per-run logs "
-            "land in ~/.claude/logs/review-loop/<UTC-stamp>/."
+            "Iterates: reviewer critiques the current target file; if it approves "
+            "the loop ends, otherwise the author rewrites the file with that "
+            "feedback. Repeat until reviewer approval, byte-stable author output, "
+            "or --max-iterations. Per-run logs land in "
+            "~/.claude/logs/review-loop/<UTC-stamp>/."
         ),
     )
     p.add_argument("--target", required=True, type=Path, help="Path to the file to iterate on.")

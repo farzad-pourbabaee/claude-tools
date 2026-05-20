@@ -4,10 +4,11 @@ Personal Claude Code plugin + Python toolkit.
 
 Currently ships one tool:
 
-- **`review-loop`** — cross-model author/reviewer loop on a target file.
-  Default: Claude (Opus) drafts, Codex (GPT-5) reviews, iterates until
-  convergence or `--max-iterations` is hit. Per-run transcripts under
-  `~/.claude/logs/review-loop/<UTC-stamp>/`.
+- **`review-loop`** — cross-model reviewer/author loop on a target file.
+  Default: Codex (GPT-5) critiques first, Claude (Opus) rewrites with the
+  feedback, iterates until reviewer approval or `--max-iterations` is hit.
+  If the original file already passes review, the author is never invoked.
+  Per-run transcripts under `~/.claude/logs/review-loop/<UTC-stamp>/`.
 
 ## Install on a new machine
 
