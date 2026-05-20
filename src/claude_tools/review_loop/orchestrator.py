@@ -196,24 +196,44 @@ Review the current target file. List substantive issues, or end with
 <approved/> if none remain."""
 
 
+def _working_target_path(original: Path) -> Path:
+    """Sibling of ``original`` with ``_loop_reviewed`` inserted before the suffix.
+
+    Example: ``/x/paper.md`` -> ``/x/paper_loop_reviewed.md``. For extensionless
+    files we just append the suffix: ``/x/NOTES`` -> ``/x/NOTES_loop_reviewed``.
+    """
+    return original.with_name(f"{original.stem}_loop_reviewed{original.suffix}")
+
+
 def run_loop(cfg: LoopConfig) -> LoopResult:
     """Execute the reviewer/author loop. Returns a LoopResult with logs.
 
-    Each iteration runs the reviewer first against the current target file.
+    The original target file is never modified. At startup we copy its contents
+    to a sibling working file named ``<stem>_loop_reviewed<ext>`` and run the
+    loop against that copy; when the loop ends, that file holds the final
+    version.
+
+    Each iteration runs the reviewer first against the current working file.
     If the reviewer signals approval, the loop ends without an author call.
-    Otherwise the author rewrites the file with the reviewer's feedback in
-    hand and we move to the next iteration.
+    Otherwise the author rewrites the working file with the reviewer's feedback
+    in hand and we move to the next iteration.
     """
-    target = cfg.target.resolve()
-    if not target.exists():
-        raise FileNotFoundError(target)
+    original = cfg.target.resolve()
+    if not original.exists():
+        raise FileNotFoundError(original)
+
+    working = _working_target_path(original)
+    original_content = original.read_text(encoding="utf-8")
+    _atomic_write(working, original_content)
 
     author = get_adapter(cfg.author)
     reviewer = get_adapter(cfg.reviewer)
 
     run_dir = new_run_dir("review-loop")
     console.print(f"[bold]review-loop[/bold] run dir: {run_dir}")
-    write_transcript(run_dir, "target.before", target.read_text(encoding="utf-8"))
+    console.print(f"original (untouched): {original}")
+    console.print(f"working/output file:  {working}")
+    write_transcript(run_dir, "target.before", original_content)
 
     result = LoopResult(config=cfg, run_dir=run_dir)
     prev_author_output = ""
@@ -222,7 +242,13 @@ def run_loop(cfg: LoopConfig) -> LoopResult:
         console.rule(f"Iteration {i}/{cfg.max_iterations}")
 
         # --- Reviewer turn (always runs first; sees the current file in place). ---
-        ctx = collect_context(target, max_tokens=cfg.context_budget_tokens)
+        # Hide the untouched original from sibling context so the models don't
+        # see two near-identical files in the same directory.
+        ctx = collect_context(
+            working,
+            max_tokens=cfg.context_budget_tokens,
+            exclude=[original],
+        )
         reviewer_prompt = _build_reviewer_prompt(ctx)
 
         if cfg.dry_run:
@@ -260,7 +286,11 @@ def run_loop(cfg: LoopConfig) -> LoopResult:
 
         # --- Author turn (acts on the reviewer's feedback). ---
         # Re-collect context defensively, though only the reviewer block has changed.
-        ctx = collect_context(target, max_tokens=cfg.context_budget_tokens)
+        ctx = collect_context(
+            working,
+            max_tokens=cfg.context_budget_tokens,
+            exclude=[original],
+        )
         author_prompt = _build_author_prompt(ctx, reviewer_output)
         console.print(f"[cyan]author[/cyan] = {author.name}; invoking...")
         author_output = author.invoke(
@@ -272,7 +302,7 @@ def run_loop(cfg: LoopConfig) -> LoopResult:
         write_transcript(run_dir, f"iter-{i:02d}-author", author_output)
 
         new_body = _extract_file_body(author_output)
-        _atomic_write(target, new_body)
+        _atomic_write(working, new_body)
         write_transcript(run_dir, f"iter-{i:02d}-target-after", new_body)
 
         iter_result = IterationResult(
@@ -307,7 +337,8 @@ def run_loop(cfg: LoopConfig) -> LoopResult:
     summary_lines = [
         f"# review-loop run — {datetime.now(UTC).isoformat()}",
         "",
-        f"- target: `{target}`",
+        f"- original (untouched): `{original}`",
+        f"- output: `{working}`",
         f"- author: `{cfg.author}`",
         f"- reviewer: `{cfg.reviewer}`",
         f"- iterations run: {len(result.iterations)}",

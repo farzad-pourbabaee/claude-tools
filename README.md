@@ -8,7 +8,9 @@ Currently ships one tool:
   Default: Codex (GPT-5) critiques first, Claude (Opus) rewrites with the
   feedback, iterates until reviewer approval or `--max-iterations` is hit.
   If the original file already passes review, the author is never invoked.
-  Per-run transcripts under `~/.claude/logs/review-loop/<UTC-stamp>/`.
+  The original is never modified; the final revision lands in a sibling
+  `<stem>_loop_reviewed<ext>` file. Per-run transcripts under
+  `~/.claude/logs/review-loop/<UTC-stamp>/`.
 
 ## Install on a new machine
 

@@ -28,17 +28,26 @@ will silently drop everything after the first line.
 
 ## What happens
 
+The original target file is **never modified**. At startup the orchestrator
+copies it to a sibling `<stem>_loop_reviewed<ext>` (e.g. `paper.md` →
+`paper_loop_reviewed.md`, overwriting any prior copy) and runs the loop
+against that working file. When the loop ends — by approval, stability, or
+hitting `--max-iterations` — that sibling file holds the final version.
+
 Each iteration:
 
-1. **Reviewer** (default: Codex / GPT-5) reads the current target file plus
-   read-only context (sibling files in the same directory + project tree)
-   and either lists remaining substantive issues or ends with `<approved/>`.
+1. **Reviewer** (default: Codex / GPT-5) reads the current working file plus
+   read-only context (sibling files in the same directory + project tree,
+   with the untouched original hidden so the models don't see two
+   near-identical files) and either lists remaining substantive issues or
+   ends with `<approved/>`.
 2. **Author** (default: Claude Opus) reads the same context plus the
-   reviewer's feedback and emits a full revised version of the target file.
-   The orchestrator writes it back atomically to the same path.
+   reviewer's feedback and emits a full revised version of the working file.
+   The orchestrator writes it back atomically to the working path.
 
 If the reviewer approves on its very first pass, the author is never invoked
-and the loop ends after a single reviewer call.
+and the loop ends after a single reviewer call; the working file in that
+case is a byte-for-byte copy of the original.
 
 Loop stops on: explicit `<approved/>`, byte-stable author output across
 consecutive iterations, or `--max-iterations` (default 6).

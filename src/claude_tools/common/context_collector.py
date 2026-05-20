@@ -94,18 +94,26 @@ def collect_context(
     project_root: Path | None = None,
     max_tokens: int = 200_000,
     extensions: tuple[str, ...] | None = None,
+    exclude: Iterable[Path] | None = None,
 ) -> Context:
     """Gather target file + sibling text files under ``project_root``.
 
     Files are prioritized by: target itself > files in same directory as target,
     same stem first > all other text files, most-recently-modified first. We
     drop files when the cumulative token estimate exceeds ``max_tokens``.
+
+    ``exclude`` skips additional paths from the sibling sweep (the target is
+    always excluded automatically). Used by review-loop to hide the original
+    file when the loop operates on a working copy next to it.
     """
     target = target.resolve()
     if project_root is None:
         project_root = target.parent
     project_root = project_root.resolve()
     exts = extensions or TEXT_EXTENSIONS
+    excluded_paths: set[Path] = (
+        {p.resolve() for p in exclude} if exclude is not None else set()
+    )
 
     target_content = target.read_text(encoding="utf-8", errors="replace")
     used_tokens = len(target_content) // CHARS_PER_TOKEN_ESTIMATE
@@ -113,6 +121,8 @@ def collect_context(
     candidates: list[Path] = []
     for p in _walk(project_root):
         if p == target:
+            continue
+        if p.resolve() in excluded_paths:
             continue
         if p.suffix.lower() not in exts:
             continue

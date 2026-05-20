@@ -12,6 +12,7 @@ from claude_tools.review_loop.orchestrator import (
     LoopConfig,
     _atomic_write,
     _extract_file_body,
+    _working_target_path,
     run_loop,
 )
 
@@ -90,9 +91,11 @@ def test_converges_on_reviewer_approval_of_original(
 
     assert result.final_converged is True
     assert "approved" in result.final_reason.lower()
-    # Original file is untouched because the reviewer-first loop stops before
-    # the author is invoked.
+    # Original is always untouched; the working copy mirrors it since the
+    # author was never invoked.
     assert target.read_text() == "original body\n"
+    working = tmp_path / "paper_loop_reviewed.md"
+    assert working.read_text() == "original body\n"
     assert fake_adapters["claude"].calls == []
     assert len(result.iterations) == 1
 
@@ -120,7 +123,11 @@ def test_converges_after_one_revision(
 
     assert result.final_converged is True
     assert "approved" in result.final_reason.lower()
-    assert target.read_text() == "revised body 1"
+    # Original is preserved verbatim; the revised version lands in the
+    # _loop_reviewed sibling.
+    assert target.read_text() == "original body\n"
+    working = tmp_path / "paper_loop_reviewed.md"
+    assert working.read_text() == "revised body 1"
     # Iter 1: codex flags + claude rewrites. Iter 2: codex approves, no author.
     assert len(result.iterations) == 2
     assert len(fake_adapters["claude"].calls) == 1
@@ -178,6 +185,10 @@ def test_dry_run_does_not_invoke(
     assert fake_adapters["claude"].calls == []
     assert fake_adapters["codex"].calls == []
     assert target.read_text() == original
+    # The working copy is still created in dry-run so the prompts reflect the
+    # file the loop would actually edit.
+    working = tmp_path / "paper_loop_reviewed.md"
+    assert working.read_text() == original
     # Dry-run writes the first prompt the orchestrator would send. Under the
     # reviewer-first loop, that's the reviewer prompt.
     prompts = sorted(p.name for p in result.run_dir.iterdir())
@@ -224,6 +235,69 @@ def test_engine_settings_threaded_to_adapters(
         {"model": "gpt-5.5", "effort": "xhigh"},
         {"model": "gpt-5.5", "effort": "xhigh"},
     ]
+
+
+def test_working_target_path_inserts_suffix_before_extension(tmp_path: Path) -> None:
+    assert _working_target_path(tmp_path / "paper.md") == tmp_path / "paper_loop_reviewed.md"
+    assert _working_target_path(tmp_path / "a.b.tex") == tmp_path / "a.b_loop_reviewed.tex"
+    # No extension: append.
+    assert _working_target_path(tmp_path / "NOTES") == tmp_path / "NOTES_loop_reviewed"
+
+
+def test_original_untouched_when_max_iterations_hit(
+    fake_adapters, tmp_path: Path, isolated_home: Path
+) -> None:
+    """The original file must survive a non-converging run; output is the working copy."""
+    target = tmp_path / "paper.md"
+    original_body = "original body\n"
+    target.write_text(original_body)
+
+    fake_adapters["claude"] = FakeAdapter(
+        name="claude",
+        responses=[
+            "<<<FILE>>>\nrev1 " + "X" * 100 + "\n<<<END>>>",
+            "<<<FILE>>>\nrev2 " + "Y" * 500 + "\n<<<END>>>",
+        ],
+        calls=[],
+    )
+    fake_adapters["codex"] = FakeAdapter(
+        name="codex",
+        responses=["Issue: foo", "Issue: bar"],
+        calls=[],
+    )
+
+    cfg = LoopConfig(target=target, author="claude", reviewer="codex", max_iterations=2)
+    run_loop(cfg)
+
+    assert target.read_text() == original_body
+    working = tmp_path / "paper_loop_reviewed.md"
+    assert working.exists()
+    assert working.read_text().startswith("rev2 ")
+
+
+def test_original_excluded_from_sibling_context(
+    fake_adapters, tmp_path: Path, isolated_home: Path
+) -> None:
+    """The reviewer prompt must not echo the original file back as a sibling."""
+    target = tmp_path / "paper.md"
+    target.write_text("UNIQUE_ORIGINAL_TOKEN body\n")
+
+    fake_adapters["claude"] = FakeAdapter(name="claude", responses=[], calls=[])
+    fake_adapters["codex"] = FakeAdapter(
+        name="codex",
+        responses=["No remaining errors. <approved/>"],
+        calls=[],
+    )
+
+    cfg = LoopConfig(target=target, author="claude", reviewer="codex", max_iterations=1)
+    run_loop(cfg)
+
+    reviewer_prompt = fake_adapters["codex"].calls[0][1]
+    # The token appears in the working-copy block but the original file path
+    # must not be listed as a separate sibling section.
+    assert "### paper.md" not in reviewer_prompt
+    # Sanity: the working file's content is still being sent for review.
+    assert "UNIQUE_ORIGINAL_TOKEN" in reviewer_prompt
 
 
 def test_engine_settings_default_to_none(
