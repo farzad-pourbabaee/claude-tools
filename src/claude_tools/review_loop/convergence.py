@@ -6,7 +6,10 @@ import re
 from dataclasses import dataclass
 
 APPROVED_RE = re.compile(r"<approved\s*/>|<\s*/?\s*approved\s*>", re.IGNORECASE)
-NO_ISSUES_RE = re.compile(r"\bno (remaining |substantive )?(errors|issues|problems)\b", re.IGNORECASE)
+NO_ISSUES_RE = re.compile(
+    r"\bno (remaining |substantive )?(errors|issues|problems)\b",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)

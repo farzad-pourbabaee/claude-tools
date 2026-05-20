@@ -29,7 +29,11 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> None:
     )
     p.add_argument("--target", required=True, type=Path, help="Path to the file to iterate on.")
     p.add_argument("--author", choices=["claude", "codex"], help="Model that revises the file.")
-    p.add_argument("--reviewer", choices=["claude", "codex"], help="Model that critiques each revision.")
+    p.add_argument(
+        "--reviewer",
+        choices=["claude", "codex"],
+        help="Model that critiques each revision.",
+    )
     p.add_argument("--max-iterations", type=int, help="Hard cap on rounds (default 6).")
     p.add_argument("--context-budget", type=int, dest="context_budget_tokens",
                    help="Approx token budget for read-only sibling files.")
@@ -43,7 +47,11 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> None:
 def run(args: argparse.Namespace) -> int:
     cfg_dict = load_tool_config("review-loop", defaults=DEFAULTS)
     # CLI flags override config file.
-    for key in ("author", "reviewer", "max_iterations", "context_budget_tokens", "diff_threshold_bytes"):
+    overridable = (
+        "author", "reviewer", "max_iterations",
+        "context_budget_tokens", "diff_threshold_bytes",
+    )
+    for key in overridable:
         val = getattr(args, key, None)
         if val is not None:
             cfg_dict[key] = val

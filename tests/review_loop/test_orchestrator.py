@@ -123,7 +123,10 @@ def test_dry_run_does_not_invoke(
     fake_adapters["claude"] = FakeAdapter(name="claude", responses=[], calls=[])
     fake_adapters["codex"] = FakeAdapter(name="codex", responses=[], calls=[])
 
-    cfg = LoopConfig(target=target, author="claude", reviewer="codex", max_iterations=3, dry_run=True)
+    cfg = LoopConfig(
+        target=target, author="claude", reviewer="codex",
+        max_iterations=3, dry_run=True,
+    )
     result = run_loop(cfg)
 
     assert fake_adapters["claude"].calls == []

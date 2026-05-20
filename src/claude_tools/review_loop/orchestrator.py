@@ -5,16 +5,15 @@ from __future__ import annotations
 import os
 import tempfile
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from rich.console import Console
 
 from claude_tools.common.context_collector import Context, collect_context
 from claude_tools.common.logging import new_run_dir, write_transcript
-from claude_tools.review_loop.adapters import ModelAdapter, get_adapter
+from claude_tools.review_loop.adapters import get_adapter
 from claude_tools.review_loop.convergence import (
-    ConvergenceDecision,
     diff_below_threshold,
     reviewer_approved,
 )
@@ -193,7 +192,9 @@ def run_loop(cfg: LoopConfig) -> LoopResult:
         author_prompt = _build_author_prompt(ctx, last_reviewer)
 
         if cfg.dry_run:
-            console.print("[yellow]DRY-RUN: skipping author invocation; writing prompts only.[/yellow]")
+            console.print(
+                "[yellow]DRY-RUN: skipping author invocation; writing prompts only.[/yellow]"
+            )
             write_transcript(run_dir, f"iter-{i:02d}-author-prompt", author_prompt)
             write_transcript(run_dir, f"iter-{i:02d}-author-system", AUTHOR_SYSTEM_PROMPT)
             break
@@ -254,7 +255,7 @@ def run_loop(cfg: LoopConfig) -> LoopResult:
 
     # Write a summary file.
     summary_lines = [
-        f"# review-loop run — {datetime.now(timezone.utc).isoformat()}",
+        f"# review-loop run — {datetime.now(UTC).isoformat()}",
         "",
         f"- target: `{target}`",
         f"- author: `{cfg.author}`",
