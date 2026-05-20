@@ -16,10 +16,8 @@ from claude_tools import __version__
 
 def _register_subcommands(subparsers: argparse._SubParsersAction) -> None:
     """Register each tool's subcommand. Add one line per new tool."""
-    # Phase 6 will append:
-    # from claude_tools.review_loop.cli import add_subparser as _review_loop
-    # _review_loop(subparsers)
-    pass
+    from claude_tools.review_loop.cli import add_subparser as _review_loop
+    _review_loop(subparsers)
 
 
 def build_parser() -> argparse.ArgumentParser:

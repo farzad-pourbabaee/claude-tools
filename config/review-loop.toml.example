@@ -1,0 +1,20 @@
+# Per-machine config for /review-loop.
+# Copy to ~/.config/claude-tools/review-loop.toml and edit.
+# CLI flags override these values.
+
+# Author model: "claude" or "codex".
+author = "claude"
+
+# Reviewer model: "claude" or "codex".
+reviewer = "codex"
+
+# Hard cap on iterations.
+max_iterations = 6
+
+# Approximate token budget for read-only sibling files attached as context.
+# Drop oldest-modified files first when over budget.
+context_budget_tokens = 200000
+
+# Author-output byte delta below which we declare convergence by stability.
+# Smaller = stricter (fewer false convergences); larger = stops sooner.
+diff_threshold_bytes = 32
