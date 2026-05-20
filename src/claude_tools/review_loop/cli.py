@@ -37,7 +37,14 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> None:
             "~/.claude/logs/review-loop/<UTC-stamp>/."
         ),
     )
-    p.add_argument("--target", required=True, type=Path, help="Path to the file to iterate on.")
+    # Target file can be given positionally OR via --target. The positional
+    # form makes slash-command usage natural: `/review-loop ./paper.md ...`.
+    p.add_argument("target", nargs="?", default=None, type=Path,
+                   help="Path to the file to iterate on (positional form). "
+                        "Equivalent to --target.")
+    p.add_argument("--target", dest="target_flag", type=Path, default=None,
+                   help="Path to the file to iterate on (flag form, equivalent "
+                        "to the positional argument).")
     p.add_argument("--author", choices=["claude", "codex"], help="Model that revises the file.")
     p.add_argument(
         "--reviewer",
@@ -70,6 +77,13 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> None:
 
 
 def run(args: argparse.Namespace) -> int:
+    # Resolve target from positional or --target. Positional wins if both are given.
+    target = args.target if args.target is not None else args.target_flag
+    if target is None:
+        raise SystemExit(
+            "error: a target file is required (positional argument or --target FILE)"
+        )
+
     cfg_dict = load_tool_config("review-loop", defaults=DEFAULTS)
     # CLI flags override config file.
     overridable = (
@@ -85,7 +99,7 @@ def run(args: argparse.Namespace) -> int:
             cfg_dict[key] = val
 
     cfg = LoopConfig(
-        target=args.target,
+        target=target,
         author=cfg_dict["author"],
         reviewer=cfg_dict["reviewer"],
         max_iterations=int(cfg_dict["max_iterations"]),

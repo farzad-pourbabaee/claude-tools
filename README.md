@@ -37,14 +37,20 @@ plugin's skills.
 From a terminal:
 
 ```bash
-claude-tools review-loop --target ./paper.md --max-iterations 6
+claude-tools review-loop ./paper.md --max-iterations 6
 ```
 
-From inside Claude Code:
+From inside Claude Code (everything on **one line** — newlines split the
+slash-command's argument list):
 
 ```
 /review-loop ./paper.md --max-iterations 6
 ```
+
+The target file can be given positionally (as above) or via `--target FILE`;
+both are equivalent. Pin per-engine model + reasoning effort with
+`--claude-model / --claude-effort / --codex-model / --codex-effort`
+(unset = each CLI's own default).
 
 See `docs/` for architecture, machine-specific overrides, and the
 checklist for adding a new tool.

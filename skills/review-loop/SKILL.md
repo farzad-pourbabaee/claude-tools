@@ -8,12 +8,23 @@ version: 0.1.0
 
 # /review-loop
 
-Run an author/reviewer feedback loop on a target file using the Claude Code CLI
+Run a reviewer/author feedback loop on a target file using the Claude Code CLI
 and the Codex CLI (both subscription-backed, no API keys required).
 
 ```!
 "${CLAUDE_PLUGIN_ROOT}/scripts/run-tool.sh" review-loop $ARGUMENTS
 ```
+
+## Usage
+
+```
+/review-loop <target-file> [flags...]
+/review-loop --target <target-file> [flags...]   # equivalent flag form
+```
+
+Keep the whole invocation on **one line** — Claude Code splits a multi-line
+slash command into separate dispatches, so newlines inside the argument list
+will silently drop everything after the first line.
 
 ## What happens
 
