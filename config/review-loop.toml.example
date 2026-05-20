@@ -11,8 +11,10 @@ reviewer = "codex"
 # Hard cap on iterations.
 max_iterations = 6
 
-# Approximate token budget for read-only sibling files attached as context.
-# Drop oldest-modified files first when over budget.
+# DEPRECATED — kept so old configs keep parsing. Sibling content is no longer
+# inlined into prompts; the author and reviewer read siblings on demand from
+# disk via their own built-in tools (Read / grep / cat / Bash), so there is
+# no shared token budget to tune.
 context_budget_tokens = 200000
 
 # Author-output byte delta below which we declare convergence by stability.

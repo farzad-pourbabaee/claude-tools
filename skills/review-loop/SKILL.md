@@ -36,14 +36,18 @@ hitting `--max-iterations` — that sibling file holds the final version.
 
 Each iteration:
 
-1. **Reviewer** (default: Codex / GPT-5) reads the current working file plus
-   read-only context (sibling files in the same directory + project tree,
-   with the untouched original hidden so the models don't see two
-   near-identical files) and either lists remaining substantive issues or
-   ends with `<approved/>`.
+1. **Reviewer** (default: Codex / GPT-5) reads the current working file
+   (inlined into the prompt) plus a project-tree listing for orientation,
+   and either lists remaining substantive issues or ends with `<approved/>`.
 2. **Author** (default: Claude Opus) reads the same context plus the
    reviewer's feedback and emits a full revised version of the working file.
    The orchestrator writes it back atomically to the working path.
+
+Both author and reviewer are launched with the project root as their
+working directory, so they can read any other file in the project on
+demand via their own built-in tools (Read / grep / cat / Bash). Sibling
+file contents are NOT inlined into prompts — siblings don't change during
+the loop, so re-shipping them every iteration would just waste tokens.
 
 If the reviewer approves on its very first pass, the author is never invoked
 and the loop ends after a single reviewer call; the working file in that
