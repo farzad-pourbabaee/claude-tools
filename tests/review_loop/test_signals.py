@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import io
+import re
 
 from rich.console import Console
 
 from claude_tools.review_loop.signals import (
     _format_claude_event,
     _format_codex_event,
+    _strip_shell_wrapper,
+    format_duration,
     make_signal_printer,
 )
 
@@ -27,6 +30,32 @@ def test_claude_tool_use_read() -> None:
     assert out is not None
     assert out.startswith("tool: Read(")
     assert "paper.md" in out
+    # Full path is collapsed to basename — no parent dirs in the displayed line.
+    assert "/abs/path" not in out
+
+
+def test_claude_tool_use_read_reduces_long_path_to_basename() -> None:
+    long_path = (
+        "/Users/farzad/Library/CloudStorage/GoogleDrive-farzad@example.com/"
+        "My Drive/Research/SequentialSocialLearning/paper_loop_reviewed.md"
+    )
+    evt = {
+        "type": "assistant",
+        "message": {"content": [{"type": "tool_use", "name": "Read",
+                                  "input": {"file_path": long_path}}]},
+    }
+    out = _format_claude_event(evt)
+    assert out == "tool: Read(paper_loop_reviewed.md)"
+
+
+def test_claude_tool_use_bash_strips_shell_wrapper() -> None:
+    evt = {
+        "type": "assistant",
+        "message": {"content": [{"type": "tool_use", "name": "Bash",
+                                  "input": {"command": "/bin/zsh -lc 'wc -l paper.md'"}}]},
+    }
+    out = _format_claude_event(evt)
+    assert out == "tool: Bash(wc -l paper.md)"
 
 
 def test_claude_tool_use_edit() -> None:
@@ -94,6 +123,46 @@ def test_codex_command_execution() -> None:
     assert "grep" in out
 
 
+def test_codex_command_execution_strips_shell_wrapper() -> None:
+    """Codex prepends `/bin/zsh -lc <cmd>` to every shell invocation; that
+    wrapper is noise — strip it so the user sees the actual command."""
+    evt = {
+        "type": "item.completed",
+        "item": {"type": "command_execution",
+                 "command": ["/bin/zsh", "-lc", "wc -l paper.md"]},
+    }
+    out = _format_codex_event(evt)
+    assert out == "tool: bash(wc -l paper.md)"
+
+
+def test_codex_file_change_uses_basename() -> None:
+    evt = {
+        "type": "item.completed",
+        "item": {"type": "file_change", "path": "/abs/path/paper.md"},
+    }
+    out = _format_codex_event(evt)
+    assert out == "tool: edit(paper.md)"
+
+
+def test_strip_shell_wrapper_variants() -> None:
+    assert _strip_shell_wrapper("/bin/zsh -lc 'wc -l x'") == "wc -l x"
+    assert _strip_shell_wrapper('/bin/bash -lc "ls -la"') == "ls -la"
+    assert _strip_shell_wrapper("/bin/sh -c 'echo hi'") == "echo hi"
+    # No wrapper — passthrough.
+    assert _strip_shell_wrapper("ls -la") == "ls -la"
+    # Unbalanced quotes — leave them alone.
+    assert _strip_shell_wrapper("/bin/zsh -lc 'unclosed") == "'unclosed"
+
+
+def test_format_duration_humanizes() -> None:
+    assert format_duration(0.0) == "0.0s"
+    assert format_duration(3.21) == "3.2s"
+    assert format_duration(59.9) == "59.9s"
+    assert format_duration(60.0) == "1m 00s"
+    assert format_duration(125.0) == "2m 05s"
+    assert format_duration(3725.0) == "1h 02m 05s"
+
+
 def test_codex_unknown_item_type_surfaces_label() -> None:
     evt = {
         "type": "item.completed",
@@ -128,5 +197,7 @@ def test_printer_emits_one_line_per_interesting_event() -> None:
     for ln in lines:
         assert "iter 03" in ln
         assert "author" in ln
+        # Each signal line is prefixed with a wall-clock HH:MM:SS timestamp.
+        assert re.match(r"^\d{2}:\d{2}:\d{2}\s", ln)
     assert "comment: hello" in lines[0]
     assert "tool: Glob" in lines[1]

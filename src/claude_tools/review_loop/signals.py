@@ -13,7 +13,9 @@ The full raw event stream is still persisted to disk by the orchestrator
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import Callable
+from datetime import datetime
 from typing import Any
 
 from rich.console import Console
@@ -29,10 +31,52 @@ SIDE_COLOR = {
     "reviewer": "magenta",
 }
 
+# Shell wrapper prefixes that codex/claude prepend to model-generated commands.
+# Stripped from the displayed signal line — the wrapper is noise, not signal.
+_SHELL_WRAPPERS: tuple[str, ...] = (
+    "/bin/zsh -lc ", "/bin/bash -lc ", "/bin/sh -lc ",
+    "/bin/zsh -c ",  "/bin/bash -c ",  "/bin/sh -c ",
+    "zsh -lc ",      "bash -lc ",      "sh -lc ",
+    "zsh -c ",       "bash -c ",       "sh -c ",
+)
+
 
 def _truncate(s: str, limit: int = MAX_LINE_CHARS) -> str:
     s = " ".join(s.split())
     return s if len(s) <= limit else s[: limit - 1] + "…"
+
+
+def _now_hms() -> str:
+    return datetime.now().strftime("%H:%M:%S")
+
+
+def _basename(path: str) -> str:
+    """Return just the filename — full paths are noise in the signal stream."""
+    return os.path.basename(path) if path else ""
+
+
+def _strip_shell_wrapper(cmd: str) -> str:
+    """Drop ``/bin/zsh -lc 'X'`` → ``X``; quotes around the inner command too."""
+    s = cmd.strip()
+    for pref in _SHELL_WRAPPERS:
+        if s.startswith(pref):
+            s = s[len(pref):].strip()
+            break
+    if len(s) >= 2 and s[0] == s[-1] and s[0] in ('"', "'"):
+        s = s[1:-1].strip()
+    return s
+
+
+def format_duration(seconds: float) -> str:
+    """Compact human duration: ``12.3s`` or ``2m 05s``."""
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    total = int(round(seconds))
+    m, s = divmod(total, 60)
+    if m < 60:
+        return f"{m}m {s:02d}s"
+    h, m = divmod(m, 60)
+    return f"{h}h {m:02d}m {s:02d}s"
 
 
 def _format_claude_event(event: dict[str, Any]) -> str | None:
@@ -79,9 +123,9 @@ def _format_codex_event(event: dict[str, Any]) -> str | None:
         if it == "command_execution":
             cmd = item.get("command")
             cmd_s = " ".join(str(c) for c in cmd) if isinstance(cmd, list) else str(cmd or "")
-            return f"tool: bash({_truncate(cmd_s, 80)})"
+            return f"tool: bash({_truncate(_strip_shell_wrapper(cmd_s), 100)})"
         if it == "file_change":
-            path = item.get("path") or item.get("file") or "?"
+            path = _basename(str(item.get("path") or item.get("file") or "?"))
             return f"tool: edit({path})"
         if it == "mcp_tool_call":
             name = item.get("name") or item.get("tool") or "?"
@@ -96,26 +140,28 @@ def _format_codex_event(event: dict[str, Any]) -> str | None:
 def _summarize_tool_input(name: str, inp: dict[str, Any]) -> str:
     """Pick a small, useful field or two out of a Claude tool_use input dict.
 
-    Kept deliberately narrow — the full input is in the events.jsonl for
-    inspection. We only want the bit a human glances at: which file, which
-    pattern, which shell command.
+    File paths are reduced to their basename — the full path is noise in the
+    signal stream (every Edit on the same paper would otherwise re-emit
+    ``/Users/.../My Drive/.../bounded_memory…``). Shell commands strip their
+    ``/bin/zsh -lc`` wrapper for the same reason. The full input is in the
+    events.jsonl for forensic inspection.
     """
     if name == "Read":
-        return _truncate(str(inp.get("file_path", "")), 80)
+        return _basename(str(inp.get("file_path", "")))
     if name == "Edit":
-        path = inp.get("file_path", "")
-        old = inp.get("old_string", "")
+        path = _basename(str(inp.get("file_path", "")))
+        old = inp.get("old_string", "") or ""
         snippet = (old.splitlines() or [""])[0]
-        return _truncate(f"{path} :: {snippet}", 80)
+        return _truncate(f"{path} :: {snippet}", 100) if snippet else path
     if name in {"Glob", "Grep"}:
-        return _truncate(str(inp.get("pattern") or inp.get("query") or ""), 80)
+        return _truncate(str(inp.get("pattern") or inp.get("query") or ""), 100)
     if name == "Bash":
-        return _truncate(str(inp.get("command", "")), 80)
+        return _truncate(_strip_shell_wrapper(str(inp.get("command", ""))), 100)
     if name == "Write":
-        return _truncate(str(inp.get("file_path", "")), 80)
+        return _basename(str(inp.get("file_path", "")))
     # Best-effort fallback: stringify the input, truncated.
     try:
-        return _truncate(json.dumps(inp, ensure_ascii=False), 80)
+        return _truncate(json.dumps(inp, ensure_ascii=False), 100)
     except (TypeError, ValueError):
         return ""
 
@@ -140,6 +186,8 @@ def make_signal_printer(
     def _emit(event: dict[str, Any]) -> None:
         line = formatter(event)
         if line:
-            console.print(f"{prefix} {line}", highlight=False)
+            console.print(
+                f"[dim]{_now_hms()}[/dim] {prefix} {line}", highlight=False,
+            )
 
     return _emit

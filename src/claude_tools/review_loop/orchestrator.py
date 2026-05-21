@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import os
 import tempfile
+import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -48,7 +49,7 @@ from claude_tools.review_loop.diffing import (
     format_ranges,
     unified_diff_text,
 )
-from claude_tools.review_loop.signals import make_signal_printer
+from claude_tools.review_loop.signals import format_duration, make_signal_printer
 
 console = Console()
 
@@ -131,6 +132,8 @@ class IterationResult:
     reviewer_output: str
     author_output: str
     changed_ranges: list[tuple[int, int]] = field(default_factory=list)
+    reviewer_seconds: float = 0.0
+    author_seconds: float = 0.0
     converged: bool = False
     convergence_reason: str = ""
 
@@ -309,16 +312,22 @@ def run_loop(cfg: LoopConfig) -> LoopResult:
         reviewer_signal = make_signal_printer(
             console, iteration=i, side="reviewer", engine=reviewer.name,
         )
+        reviewer_t0 = time.monotonic()
         reviewer_output = reviewer.send(
             reviewer_msg,
             system_prompt=reviewer_system,
             on_event=reviewer_signal,
         )
+        reviewer_seconds = time.monotonic() - reviewer_t0
         write_transcript(run_dir, f"iter-{i:02d}-reviewer", reviewer_output)
         if reviewer.last_run is not None:
             _persist_events(
                 run_dir, f"iter-{i:02d}-reviewer", reviewer.last_run.raw_lines,
             )
+        console.print(
+            f"[magenta]reviewer[/magenta] done in "
+            f"[bold]{format_duration(reviewer_seconds)}[/bold]"
+        )
 
         # Approval check — if so, no author call this iteration.
         decision = reviewer_approved(reviewer_output)
@@ -327,6 +336,7 @@ def run_loop(cfg: LoopConfig) -> LoopResult:
                 iteration=i,
                 reviewer_output=reviewer_output,
                 author_output="(no author call — reviewer approved)",
+                reviewer_seconds=reviewer_seconds,
                 converged=True,
                 convergence_reason=decision.reason,
             )
@@ -352,16 +362,22 @@ def run_loop(cfg: LoopConfig) -> LoopResult:
         author_signal = make_signal_printer(
             console, iteration=i, side="author", engine=author.name,
         )
+        author_t0 = time.monotonic()
         author_output = author.send(
             author_msg,
             system_prompt=author_system,
             on_event=author_signal,
         )
+        author_seconds = time.monotonic() - author_t0
         write_transcript(run_dir, f"iter-{i:02d}-author", author_output)
         if author.last_run is not None:
             _persist_events(
                 run_dir, f"iter-{i:02d}-author", author.last_run.raw_lines,
             )
+        console.print(
+            f"[cyan]author[/cyan] done in "
+            f"[bold]{format_duration(author_seconds)}[/bold]"
+        )
 
         # ---- Diff bookkeeping -------------------------------------------
         working_post = working.read_text(encoding="utf-8")
@@ -385,6 +401,8 @@ def run_loop(cfg: LoopConfig) -> LoopResult:
             reviewer_output=reviewer_output,
             author_output=author_output,
             changed_ranges=ranges,
+            reviewer_seconds=reviewer_seconds,
+            author_seconds=author_seconds,
         )
         result.iterations.append(iter_result)
 
@@ -411,6 +429,8 @@ def run_loop(cfg: LoopConfig) -> LoopResult:
         )
         console.print(f"[yellow]{result.final_reason}[/yellow]")
 
+    total_reviewer_s = sum(it.reviewer_seconds for it in result.iterations)
+    total_author_s = sum(it.author_seconds for it in result.iterations)
     summary_lines = [
         f"# review-loop run — {datetime.now(UTC).isoformat()}",
         "",
@@ -421,12 +441,17 @@ def run_loop(cfg: LoopConfig) -> LoopResult:
         f"- iterations run: {len(result.iterations)}",
         f"- converged: {result.final_converged}",
         f"- reason: {result.final_reason}",
+        f"- total reviewer time: {format_duration(total_reviewer_s)}",
+        f"- total author time:   {format_duration(total_author_s)}",
         "",
         "## Per-iteration changes",
     ]
     for it in result.iterations:
         summary_lines.append(
-            f"- iter {it.iteration:02d}: {format_ranges(it.changed_ranges)}"
+            f"- iter {it.iteration:02d}: "
+            f"reviewer {format_duration(it.reviewer_seconds)}, "
+            f"author {format_duration(it.author_seconds)}, "
+            f"ranges {format_ranges(it.changed_ranges)}"
         )
     write_transcript(run_dir, "summary", "\n".join(summary_lines))
     return result
