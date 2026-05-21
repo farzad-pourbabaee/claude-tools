@@ -34,10 +34,6 @@ from pathlib import Path
 
 from rich.console import Console
 
-from claude_tools.common.context_collector import (
-    ReviewContext,
-    collect_review_context,
-)
 from claude_tools.common.logging import new_run_dir, write_transcript
 from claude_tools.review_loop.adapters import get_adapter
 from claude_tools.review_loop.convergence import (
@@ -164,42 +160,36 @@ def _working_target_path(original: Path) -> Path:
     return original.with_name(f"{original.stem}_loop_reviewed{original.suffix}")
 
 
-def _build_initial_reviewer_prompt(ctx: ReviewContext) -> str:
-    return f"""## Target file: {ctx.target.name}
-Path on disk: `{ctx.target}`
-Project root: `{ctx.project_root}` (your working directory)
+def _build_initial_reviewer_prompt(target: Path, project_root: Path) -> str:
+    return f"""## Target file: {target.name}
+Path on disk: `{target}`
+Project root: `{project_root}` (your working directory)
 
-## Project tree (for orientation)
-```
-{ctx.tree}
-```
-
-The target file's contents are NOT inlined. Read `{ctx.target}` with your
-Read tool now, then review it. Sibling files are likewise not inlined — read
-any of them on demand from disk with your Read / Glob / Grep tools.
+The target file's contents are NOT inlined. Read `{target}` with your Read
+tool now, then review it. Sibling files are likewise not inlined and the
+project tree is not enumerated — use Glob / Grep / `ls` to discover any
+siblings you want to cross-reference, then Read them on demand.
 
 List substantive issues, ordered by severity. End with `<approved/>` on its
 own line if no substantive issues remain."""
 
 
-def _build_initial_author_prompt(ctx: ReviewContext, reviewer_feedback: str) -> str:
-    return f"""## Target file: {ctx.target.name}
-Path on disk: `{ctx.target}` — edit this file (and only this file) via your Edit tool.
-Project root: `{ctx.project_root}` (your working directory)
-
-## Project tree (for orientation)
-```
-{ctx.tree}
-```
+def _build_initial_author_prompt(
+    target: Path, project_root: Path, reviewer_feedback: str,
+) -> str:
+    return f"""## Target file: {target.name}
+Path on disk: `{target}` — edit this file (and only this file) via your Edit tool.
+Project root: `{project_root}` (your working directory)
 
 ## Reviewer feedback
 
 {reviewer_feedback}
 
-The target file's contents are NOT inlined. Read `{ctx.target}` with your
-Read tool now to see the current state, then apply the changes you agree
-with via Edit on that file. End with a brief prose summary of what you
-changed and why."""
+The target file's contents are NOT inlined and the project tree is not
+enumerated. Read `{target}` with your Read tool now to see the current
+state (and use Glob / Grep / `ls` if you need to discover siblings), then
+apply the changes you agree with via Edit on that file. End with a brief
+prose summary of what you changed and why."""
 
 
 def _build_followup_reviewer_prompt(
@@ -258,8 +248,7 @@ def run_loop(cfg: LoopConfig) -> LoopResult:
     result = LoopResult(config=cfg, run_dir=run_dir)
 
     if cfg.dry_run:
-        ctx = collect_review_context(working, exclude=[original])
-        reviewer_prompt = _build_initial_reviewer_prompt(ctx)
+        reviewer_prompt = _build_initial_reviewer_prompt(working, project_root)
         write_transcript(run_dir, "iter-01-msg-to-reviewer", reviewer_prompt)
         write_transcript(run_dir, "iter-01-reviewer-system", REVIEWER_SYSTEM_PROMPT)
         write_transcript(run_dir, "iter-01-author-system", AUTHOR_SYSTEM_PROMPT)
@@ -296,8 +285,7 @@ def run_loop(cfg: LoopConfig) -> LoopResult:
 
         # ---- Reviewer turn ------------------------------------------------
         if i == 1:
-            ctx = collect_review_context(working, exclude=[original])
-            reviewer_msg = _build_initial_reviewer_prompt(ctx)
+            reviewer_msg = _build_initial_reviewer_prompt(working, project_root)
             reviewer_system: str | None = REVIEWER_SYSTEM_PROMPT
         else:
             # iteration > 1: feed only the delta. Author prose + line ranges.
@@ -350,8 +338,9 @@ def run_loop(cfg: LoopConfig) -> LoopResult:
         working_pre = working.read_text(encoding="utf-8")
 
         if i == 1:
-            ctx = collect_review_context(working, exclude=[original])
-            author_msg = _build_initial_author_prompt(ctx, reviewer_output)
+            author_msg = _build_initial_author_prompt(
+                working, project_root, reviewer_output,
+            )
             author_system: str | None = AUTHOR_SYSTEM_PROMPT
         else:
             author_msg = _build_followup_author_prompt(working, reviewer_output)

@@ -161,12 +161,13 @@ When the loop starts, the orchestrator:
    Glob / Grep` only; the reviewer's is read-only.
 4. On each iteration:
    - **Reviewer turn.** The reviewer is given only the working file's path
-     plus a project tree — its contents are never inlined. On iteration 1
-     the reviewer is required to Read the file fresh from disk before
-     reviewing. On iteration N>1 the orchestrator additionally sends (a)
-     the author's prose summary of what changed and (b) the
-     orchestrator-computed list of changed line ranges as a focusing hint,
-     and asks the reviewer to re-read the file to verify.
+     — neither its contents nor an enumerated project tree are inlined. On
+     iteration 1 the reviewer is required to Read the file fresh from disk
+     before reviewing (and may use Glob/ls to discover siblings on demand).
+     On iteration N>1 the orchestrator additionally sends (a) the author's
+     prose summary of what changed and (b) the orchestrator-computed list
+     of changed line ranges as a focusing hint, and asks the reviewer to
+     re-read the file to verify.
    - If the reviewer signals `<approved/>`, the loop ends without an author
      call this iteration.
    - **Author turn.** The author also gets only the path plus the reviewer's

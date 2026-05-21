@@ -481,11 +481,12 @@ def test_original_untouched_when_max_iterations_hit(
 def test_siblings_are_not_inlined_in_prompt(
     fake_adapters, tmp_path: Path, isolated_home: Path
 ) -> None:
-    """Sibling file contents must never appear in any prompt — regression guard.
+    """No sibling content AND no enumerated project tree leaks into prompts.
 
     Re-shipping unchanged sibling content on every turn was the original
-    context-window blow-up. The new design exposes the project root via cwd
-    so the model can read siblings on demand instead.
+    context-window blow-up. The current design just exposes the project
+    root via cwd; both sides discover and read siblings on demand via their
+    own tools.
     """
     target = tmp_path / "paper.md"
     target.write_text("WORKING_TOKEN body\n")
@@ -505,15 +506,15 @@ def test_siblings_are_not_inlined_in_prompt(
     run_loop(cfg)
 
     reviewer_prompt = fake_adapters["reviewer"].sends[0]["user_prompt"]
-    # Neither the target nor any sibling content is inlined — both sides
-    # read everything from disk on demand.
+    # No file contents AND no enumerated tree — the prompt only points at
+    # the target path; the model uses Glob/ls to discover siblings if it
+    # wants them.
     assert "WORKING_TOKEN" not in reviewer_prompt
     assert "BIG_SIBLING_TOKEN" not in reviewer_prompt
     assert "SMALL_SIBLING_TOKEN" not in reviewer_prompt
-    # The tree still mentions them by filename so the model knows what's there.
-    assert "huge_notes.md" in reviewer_prompt
-    assert "tiny.md" in reviewer_prompt
-    # And the path to the working file is in the prompt so the model can Read it.
+    assert "huge_notes.md" not in reviewer_prompt
+    assert "tiny.md" not in reviewer_prompt
+    # But the working file path IS in the prompt so the model can Read it.
     working = tmp_path / "paper_loop_reviewed.md"
     assert str(working.resolve()) in reviewer_prompt
 

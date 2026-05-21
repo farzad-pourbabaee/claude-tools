@@ -49,21 +49,6 @@ class Context:
     estimated_tokens: int
 
 
-@dataclass(frozen=True)
-class ReviewContext:
-    """Lightweight context used by the review-loop orchestrator.
-
-    Holds only the target path and a project tree. Neither the target nor any
-    sibling file is inlined — the orchestrator pairs this with cwd-aware
-    adapters so the author/reviewer read all files on demand via their own
-    built-in tools (Read/Grep/Bash). Avoids re-shipping the target's content
-    on every run and keeps prompts small.
-    """
-    project_root: Path
-    target: Path
-    tree: str
-
-
 def _walk(root: Path) -> Iterable[Path]:
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS and not d.startswith(".")]
@@ -203,32 +188,3 @@ def collect_context(
     )
 
 
-def collect_review_context(
-    target: Path,
-    *,
-    project_root: Path | None = None,
-    exclude: Iterable[Path] | None = None,
-) -> ReviewContext:
-    """Lightweight context for the review-loop: target path + project tree.
-
-    Neither target nor sibling file contents are collected. The review-loop
-    orchestrator pairs this with cwd-aware adapters so the author and reviewer
-    read all files on demand via their own built-in tools, avoiding
-    re-shipping the corpus on every iteration.
-
-    ``exclude`` hides specific files from the tree listing (does not affect
-    on-disk readability — only what the model sees in the prompt's tree).
-    """
-    target = target.resolve()
-    if project_root is None:
-        project_root = target.parent
-    project_root = project_root.resolve()
-    excluded_paths: set[Path] = (
-        {p.resolve() for p in exclude} if exclude is not None else set()
-    )
-    tree = build_tree(project_root, exclude=excluded_paths)
-    return ReviewContext(
-        project_root=project_root,
-        target=target,
-        tree=tree,
-    )

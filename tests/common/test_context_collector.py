@@ -77,35 +77,3 @@ def test_build_tree_honors_exclude(tmp_path: Path) -> None:
     assert skip.name not in out
 
 
-def test_collect_review_context_returns_target_and_tree_only(tmp_path: Path) -> None:
-    target = _write(tmp_path / "paper.md", "TARGET_BODY")
-    _write(tmp_path / "sibling.md", "SIBLING_BODY " + "Z" * 50_000)
-    _write(tmp_path / ".git" / "config", "skip")
-
-    rc = cc.collect_review_context(target)
-
-    # The target path is captured; contents are NOT (the orchestrator points
-    # the model at the path and lets it Read on demand).
-    assert rc.target == target.resolve()
-    assert not hasattr(rc, "target_content")
-    # The tree lists the sibling so the model knows it exists.
-    assert "sibling.md" in rc.tree
-    # No siblings dataclass field — by construction this context type does
-    # not carry sibling file contents.
-    assert not hasattr(rc, "siblings")
-    # project_root defaults to the target's parent dir.
-    assert rc.project_root == tmp_path.resolve()
-
-
-def test_collect_review_context_excludes_files_from_tree(tmp_path: Path) -> None:
-    target = _write(tmp_path / "paper_loop_reviewed.md", "x")
-    original = _write(tmp_path / "paper.md", "x")
-    _write(tmp_path / "other.md", "x")
-
-    rc = cc.collect_review_context(target, exclude=[original])
-
-    assert "paper_loop_reviewed.md" in rc.tree
-    assert "other.md" in rc.tree
-    # The excluded original is hidden. "paper.md" is not a substring of
-    # "paper_loop_reviewed.md", so the absence is unambiguous.
-    assert "paper.md" not in rc.tree
