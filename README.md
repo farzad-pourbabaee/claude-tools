@@ -160,20 +160,19 @@ When the loop starts, the orchestrator:
    the Codex side. The author's session is constrained to `Edit / Read /
    Glob / Grep` only; the reviewer's is read-only.
 4. On each iteration:
-   - **Reviewer turn.** On iteration 1 the reviewer receives the working
-     file's full contents inlined plus a project tree. On iteration N>1
-     the reviewer's session already remembers the file, so the orchestrator
-     sends only (a) the author's prose summary of what changed and (b) the
-     orchestrator-computed list of changed line ranges — and asks the
-     reviewer to re-read the file from disk to verify.
+   - **Reviewer turn.** The reviewer is given only the working file's path
+     plus a project tree — its contents are never inlined. On iteration 1
+     the reviewer is required to Read the file fresh from disk before
+     reviewing. On iteration N>1 the orchestrator additionally sends (a)
+     the author's prose summary of what changed and (b) the
+     orchestrator-computed list of changed line ranges as a focusing hint,
+     and asks the reviewer to re-read the file to verify.
    - If the reviewer signals `<approved/>`, the loop ends without an author
      call this iteration.
-   - **Author turn.** On iteration 1 the author receives the file inlined +
-     the reviewer's feedback. On iteration N>1 it receives only the
-     reviewer's latest critique; its session already knows the file from
-     its own Edit history and can re-read at will. The author edits the
-     working file in place via its Edit tool (no `<<<FILE>>>...<<<END>>>`
-     markers — that pattern is gone).
+   - **Author turn.** The author also gets only the path plus the reviewer's
+     latest critique — never the file contents — and Reads the file fresh
+     from disk before editing it in place via its Edit tool (no
+     `<<<FILE>>>...<<<END>>>` markers — that pattern is gone).
    - The orchestrator diffs the working file pre/post the author's turn,
      extracts changed line ranges, and feeds those + the author's prose to
      the next reviewer turn.
@@ -183,9 +182,9 @@ When the loop starts, the orchestrator:
    stability check (no prior round to compare to).
 
 Throughout the run, both CLIs are launched with the project root as their
-working directory, so they can read **any** sibling file from disk on
-demand via their own built-in tools (Read / grep / cat). No sibling content
-is pasted into prompts.
+working directory, so they can read the target and **any** sibling file
+from disk on demand via their own built-in tools (Read / grep / cat). No
+file contents — target or sibling — are pasted into prompts.
 
 ### Live progress signals
 
@@ -212,7 +211,7 @@ Inside `~/.claude/logs/review-loop/<UTC-stamp>/` you'll find:
 | File | Purpose |
 |---|---|
 | `target.before.md` | Snapshot of the original file at the start of the run. |
-| `iter-NN-msg-to-reviewer.md` | The exact text the orchestrator sent into the reviewer session this round (note: only iter 1 inlines the file). |
+| `iter-NN-msg-to-reviewer.md` | The exact text the orchestrator sent into the reviewer session this round (file contents are never inlined; the reviewer Reads from disk). |
 | `iter-NN-msg-to-author.md` | The exact text the orchestrator sent into the author session this round (absent for rounds where the reviewer approved). |
 | `iter-NN-reviewer.md` | The reviewer's full response text. |
 | `iter-NN-author.md` | The author's full response text (its prose summary). |

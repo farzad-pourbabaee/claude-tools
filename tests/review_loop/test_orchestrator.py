@@ -357,10 +357,13 @@ def test_engine_settings_default_to_none(
     assert fake_adapters["reviewer"].init_kwargs["effort"] is None
 
 
-def test_first_reviewer_turn_inlines_file_but_followups_do_not(
+def test_reviewer_prompts_never_inline_file_body(
     fake_adapters, tmp_path: Path, isolated_home: Path
 ) -> None:
-    """Iter-1 reviewer sees the file body; iter-N (N>1) sees only deltas."""
+    """The target file body is never inlined into reviewer prompts — the
+    reviewer is pointed at the path on disk and reads it via its Read tool.
+    Iter-1 still attaches the system prompt; iter-N (N>1) sees only deltas
+    and no system prompt (the session carries it)."""
     target = tmp_path / "paper.md"
     target.write_text("UNIQUE_BODY_MARKER content\n")
     working = tmp_path / "paper_loop_reviewed.md"
@@ -390,10 +393,12 @@ def test_first_reviewer_turn_inlines_file_but_followups_do_not(
     iter1_reviewer = fake_adapters["reviewer"].sends[0]["user_prompt"]
     iter2_reviewer = fake_adapters["reviewer"].sends[1]["user_prompt"]
 
-    # Iter-1 inlines the file body and attaches the system prompt.
-    assert "UNIQUE_BODY_MARKER" in iter1_reviewer
+    # Iter-1 points at the path but does NOT inline the body; system prompt
+    # is attached for the first turn so the persistent session has it.
+    assert "UNIQUE_BODY_MARKER" not in iter1_reviewer
+    assert str(working.resolve()) in iter1_reviewer
     assert fake_adapters["reviewer"].sends[0]["system_prompt"] is not None
-    # Iter-2 does NOT inline the file body — only delta info.
+    # Iter-2 also does not inline the body — only delta info.
     assert "REVISED_BODY_MARKER" not in iter2_reviewer
     assert "UNIQUE_BODY_MARKER" not in iter2_reviewer
     # Iter-2 sees the author's prose summary and orchestrator-computed ranges.
@@ -500,14 +505,17 @@ def test_siblings_are_not_inlined_in_prompt(
     run_loop(cfg)
 
     reviewer_prompt = fake_adapters["reviewer"].sends[0]["user_prompt"]
-    # The working file content IS inlined on iter-1 (it's the focus of the review).
-    assert "WORKING_TOKEN" in reviewer_prompt
-    # Sibling content is NOT inlined under any block.
+    # Neither the target nor any sibling content is inlined — both sides
+    # read everything from disk on demand.
+    assert "WORKING_TOKEN" not in reviewer_prompt
     assert "BIG_SIBLING_TOKEN" not in reviewer_prompt
     assert "SMALL_SIBLING_TOKEN" not in reviewer_prompt
     # The tree still mentions them by filename so the model knows what's there.
     assert "huge_notes.md" in reviewer_prompt
     assert "tiny.md" in reviewer_prompt
+    # And the path to the working file is in the prompt so the model can Read it.
+    working = tmp_path / "paper_loop_reviewed.md"
+    assert str(working.resolve()) in reviewer_prompt
 
 
 def test_diff_artifacts_written(

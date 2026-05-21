@@ -53,8 +53,13 @@ class CodexAdapter:
         if self.effort is not None:
             argv += ["-c", f"model_reasoning_effort={self.effort}"]
 
+        # `-s/--sandbox` is a top-level codex flag. The `exec` subcommand also
+        # accepts it, but `exec resume` does not — so place it at the top
+        # level uniformly. See `codex --help` and `codex exec resume --help`.
+        argv += ["-s", sandbox]
+
         if self.session_id is None:
-            argv += ["exec", "--json", "--skip-git-repo-check", "-s", sandbox]
+            argv += ["exec", "--json", "--skip-git-repo-check"]
             if self.cwd is not None:
                 argv += ["-C", self.cwd]
             sysp = system_prompt or ""
@@ -68,8 +73,6 @@ class CodexAdapter:
                 "resume",
                 "--json",
                 "--skip-git-repo-check",
-                "-s",
-                sandbox,
                 self.session_id,
                 user_prompt,
             ]

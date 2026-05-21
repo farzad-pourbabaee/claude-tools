@@ -38,22 +38,21 @@ hitting `--max-iterations` — that sibling file holds the final version.
 
 Each iteration:
 
-1. **Reviewer** (default: Codex / GPT-5) reads the working file (full
-   contents inlined on iteration 1; thereafter only the author's prose
-   summary + orchestrator-computed line ranges, with the reviewer reading
-   the file fresh from disk via its Read tool) and either lists remaining
-   substantive issues or ends with `<approved/>`.
-2. **Author** (default: Claude Opus) gets the reviewer's feedback and edits
-   the working file in place via its Edit tool — no marker extraction. On
-   iteration 1 the file is also inlined; thereafter the author's persistent
-   session already knows the file from its own Edit history. The author
-   ends each turn with a short prose summary.
+1. **Reviewer** (default: Codex / GPT-5) is pointed at the working file's
+   path and reads it fresh from disk via its Read tool on every turn
+   (including the first). On later turns it also receives the author's
+   prose summary + orchestrator-computed line ranges as a focusing hint.
+   It either lists remaining substantive issues or ends with `<approved/>`.
+2. **Author** (default: Claude Opus) gets the reviewer's feedback, reads
+   the working file fresh from disk, and edits it in place via its Edit
+   tool — no marker extraction. The author ends each turn with a short
+   prose summary.
 
 Both author and reviewer are launched with the project root as their
-working directory, so they can read any other file in the project on
-demand via their own built-in tools (Read / Glob / Grep / Bash). Sibling
-file contents are NOT inlined into prompts — siblings don't change during
-the loop, so re-shipping them every iteration would just waste tokens.
+working directory, so they can read the target file and any other file in
+the project on demand via their own built-in tools (Read / Glob / Grep /
+Bash). No file contents — target or sibling — are inlined into prompts;
+re-shipping them every iteration would just waste tokens.
 
 The author's tool allowlist is constrained to `Edit / Read / Glob / Grep` so
 it can't accidentally damage anything other than the working file. The

@@ -84,8 +84,10 @@ def test_collect_review_context_returns_target_and_tree_only(tmp_path: Path) -> 
 
     rc = cc.collect_review_context(target)
 
-    # The target's content IS captured (it's inlined by the orchestrator).
-    assert rc.target_content == "TARGET_BODY"
+    # The target path is captured; contents are NOT (the orchestrator points
+    # the model at the path and lets it Read on demand).
+    assert rc.target == target.resolve()
+    assert not hasattr(rc, "target_content")
     # The tree lists the sibling so the model knows it exists.
     assert "sibling.md" in rc.tree
     # No siblings dataclass field — by construction this context type does

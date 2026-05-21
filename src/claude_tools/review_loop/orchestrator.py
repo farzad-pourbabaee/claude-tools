@@ -2,10 +2,13 @@
 
 Each of the two model CLIs (claude / codex) keeps one persistent session
 alive across all iterations of a run, so the author and reviewer each carry
-their full prior-turn memory from round to round. Only the *delta* between
-sides flows over the wire each iteration: the reviewer's textual critique to
-the author, and back, the author's short prose summary plus an
-orchestrator-computed diff of which line ranges in the working file moved.
+their full prior-turn memory from round to round. The target file's contents
+are never inlined into prompts — the orchestrator only passes the path, and
+the system prompts require each side to Read the file from disk on every
+turn (including the first). Only the *delta* between sides flows over the
+wire each iteration: the reviewer's textual critique to the author, and
+back, the author's short prose summary plus an orchestrator-computed diff
+of which line ranges in the working file moved.
 
 The author rewrites the file in place via its Edit tool (no marker
 extraction); the reviewer is read-only. After every author turn the
@@ -51,11 +54,11 @@ console = Console()
 
 AUTHOR_SYSTEM_PROMPT = """You are the AUTHOR in a multi-model review loop on a single target file.
 
-You will operate over many turns. On the first turn you will receive the
-full current contents of the target file inline along with the reviewer's
-critique. On later turns you will receive only the reviewer's latest
-critique — the file is already on disk and you have been editing it across
-rounds; re-read it with your Read tool any time you need a fresh look.
+You will operate over many turns. The target file lives on disk at a path
+given in the first message — its contents are NEVER inlined into your
+prompts. You MUST Read that file with your Read tool before responding on
+every turn (including the first), and re-read after your own edits any
+time you need to verify the current state.
 
 Your working directory is the project root. You may use Read / Glob / Grep
 to consult any sibling file for context. To revise the target file, use the
@@ -72,12 +75,13 @@ numbers in your summary — just describe the substance of your edits.
 
 REVIEWER_SYSTEM_PROMPT = """You are the REVIEWER in a multi-model review loop on a target file.
 
-You will operate over many turns. On the first turn you will receive the
-full current contents of the target file inline. On later turns you will
-receive a short summary of what the author claims they changed plus the
-orchestrator-computed line ranges that actually changed on disk. Always
-RE-READ the file with your Read tool before reviewing on later turns — the
-summary tells you WHERE to look, not WHAT is there.
+You will operate over many turns. The target file lives on disk at a path
+given in the first message — its contents are NEVER inlined into your
+prompts. You MUST Read that file with your Read tool before responding on
+every turn (including the first). On later turns you will receive a short
+summary of what the author claims they changed plus the
+orchestrator-computed line ranges that actually changed on disk; the
+summary tells you WHERE to look, not WHAT is there — always re-read.
 
 Your working directory is the project root. You may use Read / Glob / Grep
 to consult any sibling file for cross-reference. You may NOT modify any
@@ -167,17 +171,12 @@ Project root: `{ctx.project_root}` (your working directory)
 {ctx.tree}
 ```
 
-Sibling files are NOT inlined. Read any of them on demand from disk with your
-Read / Glob / Grep tools; they do not change during the loop.
+The target file's contents are NOT inlined. Read `{ctx.target}` with your
+Read tool now, then review it. Sibling files are likewise not inlined — read
+any of them on demand from disk with your Read / Glob / Grep tools.
 
-## Current target file content
-
-```
-{ctx.target_content}
-```
-
-Review the current target file. List substantive issues, ordered by severity.
-End with `<approved/>` on its own line if no substantive issues remain."""
+List substantive issues, ordered by severity. End with `<approved/>` on its
+own line if no substantive issues remain."""
 
 
 def _build_initial_author_prompt(ctx: ReviewContext, reviewer_feedback: str) -> str:
@@ -190,18 +189,14 @@ Project root: `{ctx.project_root}` (your working directory)
 {ctx.tree}
 ```
 
-## Current target file content
-
-```
-{ctx.target_content}
-```
-
 ## Reviewer feedback
 
 {reviewer_feedback}
 
-Apply the changes you agree with via Edit on the target file at the path
-above. End with a brief prose summary of what you changed and why."""
+The target file's contents are NOT inlined. Read `{ctx.target}` with your
+Read tool now to see the current state, then apply the changes you agree
+with via Edit on that file. End with a brief prose summary of what you
+changed and why."""
 
 
 def _build_followup_reviewer_prompt(

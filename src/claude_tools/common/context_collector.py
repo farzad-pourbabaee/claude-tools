@@ -53,16 +53,14 @@ class Context:
 class ReviewContext:
     """Lightweight context used by the review-loop orchestrator.
 
-    Holds only the target file's content and a project tree. Sibling files are
-    intentionally NOT inlined — the orchestrator pairs this with cwd-aware
-    adapters so the author/reviewer can read siblings on demand via their own
-    built-in tools (Read/Grep/Bash). Avoids re-shipping unchanged sibling
-    content on every iteration and keeps the prompt small enough to fit in
-    each model's input window.
+    Holds only the target path and a project tree. Neither the target nor any
+    sibling file is inlined — the orchestrator pairs this with cwd-aware
+    adapters so the author/reviewer read all files on demand via their own
+    built-in tools (Read/Grep/Bash). Avoids re-shipping the target's content
+    on every run and keeps prompts small.
     """
     project_root: Path
     target: Path
-    target_content: str
     tree: str
 
 
@@ -211,12 +209,12 @@ def collect_review_context(
     project_root: Path | None = None,
     exclude: Iterable[Path] | None = None,
 ) -> ReviewContext:
-    """Lightweight context for the review-loop: target content + project tree.
+    """Lightweight context for the review-loop: target path + project tree.
 
-    Sibling file contents are intentionally NOT collected. The review-loop
+    Neither target nor sibling file contents are collected. The review-loop
     orchestrator pairs this with cwd-aware adapters so the author and reviewer
-    read sibling files on demand via their own built-in tools, avoiding
-    re-shipping the unchanged sibling corpus on every iteration.
+    read all files on demand via their own built-in tools, avoiding
+    re-shipping the corpus on every iteration.
 
     ``exclude`` hides specific files from the tree listing (does not affect
     on-disk readability — only what the model sees in the prompt's tree).
@@ -228,11 +226,9 @@ def collect_review_context(
     excluded_paths: set[Path] = (
         {p.resolve() for p in exclude} if exclude is not None else set()
     )
-    target_content = target.read_text(encoding="utf-8", errors="replace")
     tree = build_tree(project_root, exclude=excluded_paths)
     return ReviewContext(
         project_root=project_root,
         target=target,
-        target_content=target_content,
         tree=tree,
     )
