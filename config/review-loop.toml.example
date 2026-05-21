@@ -11,19 +11,21 @@ reviewer = "codex"
 # Hard cap on iterations.
 max_iterations = 6
 
-# DEPRECATED — kept so old configs keep parsing. Sibling content is no longer
-# inlined into prompts; the author and reviewer read siblings on demand from
-# disk via their own built-in tools (Read / grep / cat / Bash), so there is
-# no shared token budget to tune.
+# DEPRECATED — kept so old configs keep parsing. Sibling content is never
+# inlined into prompts, and the author/reviewer carry their own state across
+# turns via persistent CLI sessions, so there is no shared token budget to
+# tune.
 context_budget_tokens = 200000
 
-# Author-output byte delta below which we declare convergence by stability.
-# Smaller = stricter (fewer false convergences); larger = stops sooner.
+# Working-file diff stability threshold (characters). From iteration 2
+# onward, if the working file changes by fewer than this many characters
+# relative to the previous iteration (true diff cost, not just length
+# difference), the loop stops. Iteration 1 is exempt. Smaller = stricter.
 diff_threshold_bytes = 32
 
-# Per-invocation timeout (seconds) for each model call.
+# Per-turn timeout (seconds) for each model call.
 # Author/reviewer steps on large files can run several minutes; raise this if
-# you see subprocess.TimeoutExpired on iteration 1. Override per-run with
+# you see timeout failures on early iterations. Override per-run with
 # --per-call-timeout.
 per_call_timeout_s = 1800
 

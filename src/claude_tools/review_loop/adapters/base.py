@@ -1,40 +1,54 @@
-"""Adapter protocol: maps a (system, user) prompt pair to a string response."""
+"""Adapter protocol: a stateful, persistent model session.
+
+Each adapter wraps one model CLI (claude / codex) and keeps a single session
+alive across many turns within one review-loop run. The orchestrator calls
+``send`` once per turn; the adapter handles starting the session on the first
+call and resuming it via the CLI's own session-id machinery on subsequent
+calls. ``on_event`` is a live-event callback (one call per JSONL event from
+the CLI's structured output stream); see ``review_loop.signals``.
+"""
 
 from __future__ import annotations
 
-from typing import Protocol
+from collections.abc import Callable
+from typing import Any, Protocol
+
+from claude_tools.common.streaming_runner import StreamingRunResult
+
+EventCallback = Callable[[dict[str, Any]], None]
 
 
 class ModelAdapter(Protocol):
-    """Each adapter wraps one model CLI/API and exposes a uniform `invoke`."""
+    """A stateful wrapper around one model CLI for the duration of a loop run."""
 
-    name: str
+    name: str          # engine identifier: "claude" or "codex"
+    role: str          # "author" or "reviewer" (governs tool allowlist / sandbox)
+    session_id: str | None  # populated after the first ``send`` call
+    # Set after each ``send`` call. Holds the raw stdout lines + parsed events
+    # for the most recent turn so the orchestrator can persist the event
+    # stream to ``iter-NN-<side>.events.jsonl`` for forensic inspection.
+    last_run: StreamingRunResult | None
 
-    def invoke(
+    def send(
         self,
-        system_prompt: str,
         user_prompt: str,
         *,
-        timeout_s: float = 1800.0,
-        model: str | None = None,
-        effort: str | None = None,
-        cwd: str | None = None,
+        system_prompt: str | None = None,
+        on_event: EventCallback | None = None,
     ) -> str:
-        """Run the model once and return its full text response.
+        """Send one turn to the underlying CLI. Returns the model's final text.
 
-        ``model`` and ``effort`` are optional pass-throughs to the underlying
-        CLI. ``None`` means "use the CLI's own default"; non-None values are
-        translated into the CLI's flag syntax by each adapter. The set of
-        valid values is governed by the CLI itself — invalid values are
-        rejected at invocation time.
+        On the very first call the adapter starts a fresh session (generating
+        or capturing a session id and recording it in ``self.session_id``).
+        On subsequent calls it resumes that session. ``system_prompt`` is only
+        meaningful on the first call; resumed turns inherit the original
+        system context from the persisted session.
 
-        ``cwd`` is the working directory the underlying CLI should treat as
-        its workspace (i.e. what its file-reading tools resolve relative
-        paths against). Used by the review-loop to expose the project to
-        the model so siblings can be read on demand instead of inlined.
-        ``None`` falls through to the subprocess's inherited cwd.
+        ``on_event`` is invoked once per parsed JSONL event from the CLI's
+        structured output stream while the model is working. The full event
+        stream is also stored on the returned ``LastRun`` (see concrete
+        implementations) for forensic logging.
 
-        Implementations must raise ``SubprocessError`` (from
-        ``claude_tools.common.subprocess_runner``) on failure.
+        Raises ``SubprocessError`` on CLI failure or timeout.
         """
         ...
